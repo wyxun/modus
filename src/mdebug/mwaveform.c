@@ -1,8 +1,6 @@
 #include "mwaveform.h"
 #include "modus.h"
 #include "segger_rtt/SEGGER_RTT.h"
-#include "mdebug/util_debug.h"
-#include "perfc_port.h"
 #include <string.h>
 
 #if MWAVEFORM_ENABLE
@@ -48,22 +46,6 @@ typedef struct {
     uint8_t                 abMask[MASK_BYTES];
     uint8_t                 abEverMask[MASK_BYTES];
 
-#if MWAVEFORM_SNAPSHOT_ENABLE
-    mwaveform_batch_sample_t atSnapshotSamples[MWAVEFORM_SNAPSHOT_DEPTH];
-    uint8_t                 achSnapshotFrame[MWAVEFORM_SNAPSHOT_MAX_FRAME_SIZE];
-
-    volatile uint16_t       hwSnapshotWrite;
-    volatile uint16_t       hwSnapshotDepth;
-    volatile uint16_t       hwSnapshotValidCount;
-    volatile uint32_t       wSnapshotSampleIndex;
-    volatile uint16_t       hwSnapshotFrameLen;
-    volatile uint32_t       wSnapshotId;
-    volatile uint32_t       wSnapshotPeriodNs;
-    volatile bool           bSnapshotArmed;
-    volatile bool           bSnapshotReady;
-    volatile bool           bSnapshotPending;
-#endif
-
     const mwaveform_protocol_t *ptProtocol;
 
     uint8_t                 chCount;
@@ -108,24 +90,6 @@ static uint16_t mwaveform_pack_batch(
         pchBuffer, atSamples, chCount, ringDepth, startOffset,
         sampleCount, startSampleIndex, periodNs);
 }
-
-#if MWAVEFORM_SNAPSHOT_ENABLE
-static uint16_t mwaveform_pack_snapshot(
-    uint8_t *pchBuffer, const mwaveform_batch_sample_t *atSamples,
-    uint8_t chCount, uint16_t ringDepth, uint16_t startOffset,
-    uint16_t sampleCount, uint32_t periodNs, uint32_t snapshotId)
-{
-    if (s_tWave.ptProtocol != NULL &&
-        s_tWave.ptProtocol->pack_snapshot != NULL) {
-        return s_tWave.ptProtocol->pack_snapshot(
-            pchBuffer, atSamples, chCount, ringDepth, startOffset,
-            sampleCount, periodNs, snapshotId);
-    }
-    return default_waveform_protocol.pack_snapshot(
-        pchBuffer, atSamples, chCount, ringDepth, startOffset,
-        sampleCount, periodNs, snapshotId);
-}
-#endif
 
 /*============================ PUBLIC API ====================================*/
 
@@ -334,7 +298,6 @@ static void mwaveform_Step(void)
     if (s_tWave.chSeq == MWAVEFORM_FRAME_TYPE_DESC ||
         s_tWave.chSeq == MWAVEFORM_FRAME_TYPE_META ||
         s_tWave.chSeq == MWAVEFORM_FRAME_TYPE_BATCH ||
-        s_tWave.chSeq == MWAVEFORM_FRAME_TYPE_SNAPSHOT ||
         s_tWave.chSeq == 0xFFu) {
         s_tWave.chSeq++;
     }
@@ -404,45 +367,6 @@ static void mwaveform_Poll(void)
         s_tWave.wLastIntervalDrops = s_tWave.wIntervalDropCount;
         s_tWave.wIntervalDropCount = 0;
     }
-
-#if MWAVEFORM_SNAPSHOT_ENABLE
-    if (s_tWave.bSnapshotPending) {
-        if (SEGGER_RTT_Write(MWAVEFORM_RTT_CHANNEL,
-                             s_tWave.achSnapshotFrame,
-                             s_tWave.hwSnapshotFrameLen) ==
-            s_tWave.hwSnapshotFrameLen) {
-            s_tWave.bSnapshotPending = false;
-        } else {
-            s_tWave.wRTTFullCount++;
-        }
-    }
-
-    if (s_tWave.bSnapshotReady) {
-        uint32_t wState = perfc_port_disable_global_interrupt();
-        if (s_tWave.bSnapshotReady && s_tWave.hwSnapshotDepth > 0u) {
-            uint16_t hwValid = s_tWave.hwSnapshotValidCount;
-            uint16_t hwStart = 0u;
-
-            if (hwValid > s_tWave.hwSnapshotDepth) {
-                hwValid = s_tWave.hwSnapshotDepth;
-            }
-            if (s_tWave.hwSnapshotWrite >= s_tWave.hwSnapshotDepth) {
-                hwStart = (uint16_t)(s_tWave.hwSnapshotWrite %
-                                     s_tWave.hwSnapshotDepth);
-            }
-            s_tWave.hwSnapshotFrameLen = mwaveform_pack_snapshot(
-                s_tWave.achSnapshotFrame, s_tWave.atSnapshotSamples,
-                s_tWave.chCount, s_tWave.hwSnapshotDepth, hwStart,
-                hwValid, s_tWave.wSnapshotPeriodNs,
-                s_tWave.wSnapshotId++);
-            s_tWave.bSnapshotReady   = false;
-            s_tWave.bSnapshotPending = true;
-        } else {
-            s_tWave.bSnapshotReady = false;
-        }
-        perfc_port_resume_global_interrupt(wState);
-    }
-#endif
 
 #if MWAVEFORM_BATCH_ENABLE
     {
@@ -599,137 +523,6 @@ uint32_t mwaveform_GetRTTFullCount(void)
     return s_tWave.wRTTFullCount;
 }
 
-#if MWAVEFORM_SNAPSHOT_ENABLE
-static int mwaveform_SnapshotStart(uint16_t depth, uint32_t periodNs)
-{
-    uint16_t hwMaxByRtt;
-
-    if (depth == 0u || periodNs == 0u || s_tWave.chCount == 0u) {
-        return MODUS_EINVAL;
-    }
-
-    hwMaxByRtt = (MWAVEFORM_RTT_BUFFER_SIZE - 21u) /
-                 (MASK_BYTES + 2u * s_tWave.chCount);
-    if (hwMaxByRtt == 0u) return MODUS_ENOMEM;
-    if (depth > MWAVEFORM_SNAPSHOT_DEPTH) depth = MWAVEFORM_SNAPSHOT_DEPTH;
-    if (depth > hwMaxByRtt) depth = hwMaxByRtt;
-
-    uint32_t wState = perfc_port_disable_global_interrupt();
-    s_tWave.hwSnapshotWrite    = 0u;
-    s_tWave.hwSnapshotValidCount = 0u;
-    s_tWave.wSnapshotSampleIndex = 0u;
-    s_tWave.hwSnapshotDepth    = depth;
-    s_tWave.wSnapshotPeriodNs  = periodNs;
-    s_tWave.bSnapshotArmed     = true;
-    s_tWave.bSnapshotReady     = false;
-    s_tWave.bSnapshotPending   = false;
-    perfc_port_resume_global_interrupt(wState);
-
-    return MODUS_SUCCESS;
-}
-
-static void mwaveform_SnapshotCapture(void)
-{
-    uint8_t abMask[MASK_BYTES];
-
-    memset(abMask, 0, MASK_BYTES);
-
-    for (uint8_t i = 0; i < s_tWave.chCount; i++) {
-        uint8_t bBit = (uint8_t)(1u << (i % 8));
-
-        if (s_tWave.apvVariables[i] != NULL ||
-            (s_tWave.abEverMask[i / 8] & bBit) != 0u) {
-            abMask[i / 8] |= bBit;
-
-            if (s_tWave.apvVariables[i] != NULL) {
-                if (s_tWave.achVariableTypes[i] == MWAVEFORM_VAR_FLOAT) {
-                    s_tWave.ahwSamples[i] = (int16_t)(
-                        *(volatile float *)s_tWave.apvVariables[i] *
-                        s_tWave.atChannels[i].fScale);
-                } else {
-                    s_tWave.ahwSamples[i] =
-                        *(volatile int16_t *)s_tWave.apvVariables[i];
-                }
-            }
-        }
-    }
-
-    if (s_tWave.hwSnapshotWrite >= s_tWave.hwSnapshotDepth) {
-        s_tWave.hwSnapshotValidCount = s_tWave.hwSnapshotDepth;
-    } else {
-        s_tWave.hwSnapshotValidCount =
-            (uint16_t)(s_tWave.hwSnapshotWrite + 1u);
-    }
-
-    uint16_t hwIdx = (uint16_t)(s_tWave.hwSnapshotWrite %
-                                s_tWave.hwSnapshotDepth);
-    s_tWave.atSnapshotSamples[hwIdx].wSampleIndex =
-        s_tWave.wSnapshotSampleIndex++;
-    memcpy(s_tWave.atSnapshotSamples[hwIdx].abMask, abMask, MASK_BYTES);
-    memcpy(s_tWave.atSnapshotSamples[hwIdx].ahwSamples,
-           s_tWave.ahwSamples,
-           sizeof(s_tWave.ahwSamples[0]) * s_tWave.chCount);
-    s_tWave.hwSnapshotWrite++;
-}
-
-static void mwaveform_SnapshotFeed(void)
-{
-    if (!s_tWave.bSnapshotArmed || s_tWave.bSnapshotReady ||
-        !s_tWave.bIsRunning || s_tWave.hwSnapshotDepth == 0u) {
-        return;
-    }
-
-    mwaveform_SnapshotCapture();
-}
-
-static int mwaveform_SnapshotTrigger(void)
-{
-    if (!s_tWave.bSnapshotArmed || s_tWave.bSnapshotReady ||
-        s_tWave.bSnapshotPending ||
-        s_tWave.hwSnapshotValidCount == 0u) {
-        return MODUS_EBUSY;
-    }
-
-    uint32_t wState = perfc_port_disable_global_interrupt();
-    if (!s_tWave.bSnapshotArmed || s_tWave.bSnapshotPending) {
-        perfc_port_resume_global_interrupt(wState);
-        return MODUS_EBUSY;
-    }
-    s_tWave.bSnapshotReady = true;
-    perfc_port_resume_global_interrupt(wState);
-    return MODUS_SUCCESS;
-}
-
-static void mwaveform_SnapshotStop(void)
-{
-    uint32_t wState = perfc_port_disable_global_interrupt();
-    s_tWave.bSnapshotArmed = false;
-    perfc_port_resume_global_interrupt(wState);
-}
-
-static int mwaveform_SnapshotIsArmed(void)
-{
-    return s_tWave.bSnapshotArmed && !s_tWave.bSnapshotReady;
-}
-
-static uint16_t mwaveform_GetSnapshotDepth(void)
-{
-    return s_tWave.hwSnapshotDepth;
-}
-#else
-static int dummy_SnapshotStart(uint16_t depth, uint32_t periodNs)
-{
-    (void)depth;
-    (void)periodNs;
-    return MODUS_ENODEV;
-}
-static void dummy_SnapshotFeed(void) {}
-static int dummy_SnapshotTrigger(void) { return MODUS_ENODEV; }
-static void dummy_SnapshotStop(void) {}
-static int dummy_SnapshotIsArmed(void) { return 0; }
-static uint16_t dummy_GetSnapshotDepth(void) { return 0u; }
-#endif
-
 const mwaveform_api_t mwaveform = {
     .Init           = mwaveform_Init,
     .AddChannel     = mwaveform_AddChannel,
@@ -749,21 +542,6 @@ const mwaveform_api_t mwaveform = {
     .GetLastIntervalDrops = mwaveform_GetLastIntervalDrops,
     .GetRTTFullCount = mwaveform_GetRTTFullCount,
     .ClearDropCount = mwaveform_ClearDropCount,
-#if MWAVEFORM_SNAPSHOT_ENABLE
-    .SnapshotStart  = mwaveform_SnapshotStart,
-    .SnapshotFeed   = mwaveform_SnapshotFeed,
-    .SnapshotTrigger = mwaveform_SnapshotTrigger,
-    .SnapshotStop   = mwaveform_SnapshotStop,
-    .SnapshotIsArmed = mwaveform_SnapshotIsArmed,
-    .GetSnapshotDepth = mwaveform_GetSnapshotDepth,
-#else
-    .SnapshotStart  = dummy_SnapshotStart,
-    .SnapshotFeed   = dummy_SnapshotFeed,
-    .SnapshotTrigger = dummy_SnapshotTrigger,
-    .SnapshotStop   = dummy_SnapshotStop,
-    .SnapshotIsArmed = dummy_SnapshotIsArmed,
-    .GetSnapshotDepth = dummy_GetSnapshotDepth,
-#endif
 };
 
 /* Weak callback — invoked by the MODUS 1kHz tick. */
@@ -773,168 +551,6 @@ __attribute__((weak)) void mwaveform_Default_Step_Callback(void) {
         mwaveform.Step();
     }
 }
-
-/*============================ MSHELL INTEGRATION ============================*/
-#include "mshell.h"
-
-static void cmd_snapshot(const char *args)
-{
-    if (strncmp(args, "start", 5) == 0) {
-        uint16_t hwDepth = MWAVEFORM_SNAPSHOT_DEPTH;
-        uint32_t wPeriod = 50000u;
-        const char *p = args + 5;
-
-        while (*p == ' ') p++;
-        if (*p >= '0' && *p <= '9') {
-            hwDepth = 0u;
-            while (*p >= '0' && *p <= '9') {
-                hwDepth = (uint16_t)(hwDepth * 10u + (uint16_t)(*p++ - '0'));
-            }
-        }
-        while (*p == ' ') p++;
-        if (*p >= '0' && *p <= '9') {
-            wPeriod = 0u;
-            while (*p >= '0' && *p <= '9') {
-                wPeriod = wPeriod * 10u + (uint32_t)(*p++ - '0');
-            }
-        }
-
-        if (mwaveform.SnapshotStart(hwDepth, wPeriod) == MODUS_SUCCESS) {
-            MLOGF(I, "Snapshot armed: depth %u period %lu ns\r\n",
-                  (unsigned)mwaveform.GetSnapshotDepth(),
-                  (unsigned long)wPeriod);
-        } else {
-            MLOG(E, "Snapshot start failed.\r\n");
-        }
-    } else if (strncmp(args, "trigger", 7) == 0) {
-        if (mwaveform.SnapshotTrigger() == MODUS_SUCCESS) {
-            MLOG(I, "Snapshot triggered.\r\n");
-        } else {
-            MLOG(W, "Snapshot not armed or busy.\r\n");
-        }
-    } else if (strncmp(args, "stop", 4) == 0) {
-        mwaveform.SnapshotStop();
-        MLOG(I, "Snapshot stopped.\r\n");
-    } else if (strncmp(args, "status", 6) == 0) {
-#if MWAVEFORM_SNAPSHOT_ENABLE
-        MLOGF(I, "Snapshot armed: %d depth: %u valid: %u\r\n",
-              mwaveform.SnapshotIsArmed(),
-              mwaveform.GetSnapshotDepth(),
-              s_tWave.hwSnapshotValidCount);
-#else
-        MLOG(I, "Snapshot disabled (MWAVEFORM_SNAPSHOT_ENABLE=0)\r\n");
-#endif
-    } else {
-        MLOG(I, "Usage: wave snap <start [depth period_ns]|trigger|stop|status>\r\n");
-    }
-}
-
-static void cmd_wave(const char *args)
-{
-    if (strncmp(args, "start", 5) == 0) {
-        mwaveform.Start();
-        MLOG(I, "Waveform started.\r\n");
-    } else if (strncmp(args, "stop", 4) == 0) {
-        mwaveform.Stop();
-        MLOG(I, "Waveform stopped.\r\n");
-    } else if (strncmp(args, "rate", 4) == 0) {
-        uint32_t wRate = 0;
-        const char *p = &args[5];
-        while (*p >= '0' && *p <= '9') {
-            wRate = wRate * 10u + (uint32_t)(*p++ - '0');
-        }
-        mwaveform.SetRate(wRate);
-        if (wRate == 0) {
-            MLOG(I, "Waveform: external-drive mode (call Step from your ISR).\r\n");
-        } else {
-            MLOGF(I, "Waveform decimation set to %lu.\r\n",
-                  (unsigned long)wRate);
-        }
-    } else if (strncmp(args, "period", 6) == 0) {
-        uint32_t wPeriod = 0;
-        const char *p = args + 6;
-        while (*p == ' ') p++;
-        while (*p >= '0' && *p <= '9') {
-            wPeriod = wPeriod * 10u + (uint32_t)(*p++ - '0');
-        }
-        if (wPeriod == 0u) {
-            MLOG(I, "Usage: wave period <ns>\r\n");
-        } else {
-            mwaveform.SetSamplePeriodNs(wPeriod);
-            MLOGF(I, "Waveform sample period set to %lu ns.\r\n",
-                  (unsigned long)wPeriod);
-        }
-    } else if (strncmp(args, "stream", 6) == 0) {
-        uint32_t wHz = 0;
-        const char *p = args + 6;
-        while (*p == ' ') p++;
-        while (*p >= '0' && *p <= '9') {
-            wHz = wHz * 10u + (uint32_t)(*p++ - '0');
-        }
-        if (wHz == 0u) {
-            MLOG(I, "Usage: wave stream <hz>\r\n");
-        } else {
-            uint32_t wIsrPeriodNs = (s_tWave.wIsrPeriodNs != 0u)
-                ? s_tWave.wIsrPeriodNs : 50000u;
-            uint32_t wActual = mwaveform.SetStreamRate(wIsrPeriodNs, wHz);
-            MLOGF(I, "Waveform stream rate set to %lu Hz.\r\n",
-                  (unsigned long)wActual);
-        }
-    } else if (strncmp(args, "chrate", 6) == 0) {
-        uint32_t wCh = 0;
-        uint32_t wHz = 0;
-        const char *p = args + 6;
-        while (*p == ' ') p++;
-        while (*p >= '0' && *p <= '9') {
-            wCh = wCh * 10u + (uint32_t)(*p++ - '0');
-        }
-        while (*p == ' ') p++;
-        while (*p >= '0' && *p <= '9') {
-            wHz = wHz * 10u + (uint32_t)(*p++ - '0');
-        }
-        uint32_t wActual = mwaveform.SetChannelRate((uint8_t)wCh, wHz);
-        MLOGF(I, "Channel %lu refresh rate set to %lu Hz.\r\n",
-              (unsigned long)wCh, (unsigned long)wActual);
-    } else if (strncmp(args, "snap", 4) == 0) {
-        const char *p = args + 4;
-        while (*p == ' ') p++;
-        cmd_snapshot(p);
-    } else if (strncmp(args, "status", 6) == 0) {
-        MLOGF(I, "Waveform: running=%d external=%d rate=%lu Hz default_steps=%lu\r\n",
-              s_tWave.bIsRunning ? 1 : 0,
-              s_tWave.bExternalDrive ? 1 : 0,
-              (unsigned long)mwaveform_GetStreamRateHz(),
-              (unsigned long)s_tWave.wDefaultStepCount);
-    } else if (strncmp(args, "rtt", 3) == 0) {
-        MLOGF(I, "Waveform RTT full: %lu\r\n",
-              (unsigned long)mwaveform.GetRTTFullCount());
-    } else if (strncmp(args, "drop clear", 10) == 0) {
-        mwaveform.ClearDropCount();
-        MLOG(I, "Waveform: Drop count cleared.\r\n");
-    } else if (strncmp(args, "drop", 4) == 0) {
-        uint32_t wDrop  = mwaveform.GetDropCount();
-        uint32_t wTotal = s_tWave.wTotalCount;
-        float    fRate  = 0.0f;
-        if (wTotal > 0) {
-            fRate = (float)wDrop * 100.0f / (float)wTotal;
-        }
-        MLOGF(I, "Waveform: Drop %lu / Total %lu (%.2f%%)\r\n",
-              (unsigned long)wDrop,
-              (unsigned long)wTotal,
-              fRate);
-    } else if (strncmp(args, "list", 4) == 0) {
-        MLOGF(I, "Channels: %d\r\n", s_tWave.chCount);
-        for (uint8_t i = 0; i < s_tWave.chCount; i++) {
-            MLOGF(I, " [%d] %s (scale: %.2f)\r\n",
-                  i, s_tWave.atChannels[i].achName,
-                  s_tWave.atChannels[i].fScale);
-        }
-    } else {
-        MLOG(I, "Usage: wave <start|stop|status|list|rate <n>|stream <hz>|chrate <ch> <hz>|period <ns>|snap|drop|rtt>\r\n");
-    }
-}
-
-MODUS_SHELL_CMD(wave, cmd_wave, "Waveform control (start/stop/rate/stream/chrate/period/snap/drop)");
 
 #else /* MWAVEFORM_ENABLE == 0 */
 
@@ -963,10 +579,6 @@ static void     dummy_SetSamplePeriodNs(uint32_t periodNs)
 static uint32_t dummy_GetDropCount(void) { return 0; }
 static uint32_t dummy_GetLastIntervalDrops(void) { return 0; }
 static uint32_t dummy_GetRTTFullCount(void) { return 0; }
-static int      dummy_SnapshotStart(uint16_t depth, uint32_t periodNs)
-{ (void)depth; (void)periodNs; return MODUS_ENODEV; }
-static int      dummy_SnapshotTrigger(void) { return MODUS_ENODEV; }
-static int      dummy_SnapshotIsArmed(void) { return 0; }
 
 const mwaveform_api_t mwaveform = {
     .Init           = dummy_Init,
@@ -987,12 +599,6 @@ const mwaveform_api_t mwaveform = {
     .GetLastIntervalDrops = dummy_GetLastIntervalDrops,
     .GetRTTFullCount = dummy_GetRTTFullCount,
     .ClearDropCount = dummy_void,
-    .SnapshotStart  = dummy_SnapshotStart,
-    .SnapshotFeed   = dummy_void,
-    .SnapshotTrigger = dummy_SnapshotTrigger,
-    .SnapshotStop   = dummy_void,
-    .SnapshotIsArmed = dummy_SnapshotIsArmed,
-    .GetSnapshotDepth = dummy_GetSnapshotDepth,
 };
 
 __attribute__((weak)) void mwaveform_Default_Step_Callback(void) {}

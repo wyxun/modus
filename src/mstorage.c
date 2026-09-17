@@ -57,6 +57,11 @@ void mstorage_EventHandle(mstorage_t *ptThis, uint32_t wEvent)
     uint32_t         wAddr   = ptObj->wFlashAddr;
     uint16_t         len     = ptObj->hwStorageLength;
 
+    if (ptFlash == NULL) {
+        MLOG(E, "MStorage: Flash device is not configured.\n");
+        return;
+    }
+
     if (wEvent & Event_Storage)
     {
         uint16_t hwCrc = mstorage_CalculateCrc16(
@@ -68,17 +73,27 @@ void mstorage_EventHandle(mstorage_t *ptThis, uint32_t wEvent)
 
         MLOGF(I, "MStorage: Saving data, CRC: 0x%04X\n", hwCrc);
 
-        mdi_flash_Unlock(ptFlash);
-        mdi_flash_Erase(ptFlash, wAddr, (uint32_t)(len + 2));
-        int32_t nRet = mdi_flash_Write(ptFlash, wAddr, 
-                                       ptObj->pchStorageStartAddr, 
-                                       (uint32_t)(len + 2));
-        mdi_flash_Lock(ptFlash);
+        int32_t nUnlock = mdi_flash_Unlock(ptFlash);
+        int32_t nErase = -1;
+        int32_t nRet = -1;
+        int32_t nLock = -1;
 
-        if (nRet >= 0) {
+        if (nUnlock >= 0) {
+            nErase = mdi_flash_Erase(
+                ptFlash, wAddr, (uint32_t)(len + 2));
+            if (nErase >= 0) {
+                nRet = mdi_flash_Write(
+                    ptFlash, wAddr, ptObj->pchStorageStartAddr,
+                    (uint32_t)(len + 2));
+            }
+            nLock = mdi_flash_Lock(ptFlash);
+        }
+
+        if (nUnlock >= 0 && nErase >= 0 && nRet >= 0 && nLock >= 0) {
             ptThis->hwLastCrc = hwCrc;
         } else {
-            MLOG(E, "MStorage: Write Failed!\n");
+            MLOGF(E, "MStorage: Write Failed (%d/%d/%d/%d).\n",
+                  (int)nUnlock, (int)nErase, (int)nRet, (int)nLock);
         }
     }
 
@@ -89,9 +104,19 @@ void mstorage_EventHandle(mstorage_t *ptThis, uint32_t wEvent)
          * 系统继续以当前 RAM 数据运行，硬件行为不受影响。
          * 下次上电时 mstorage_Init 检测到 Flash 全 FF，
          * 会将编译期静态默认值保存到 Flash 并恢复。 */
-        mdi_flash_Unlock(ptFlash);
-        mdi_flash_Erase(ptFlash, wAddr, (uint32_t)(len + 2));
-        mdi_flash_Lock(ptFlash);
+        int32_t nUnlock = mdi_flash_Unlock(ptFlash);
+        int32_t nErase = -1;
+        int32_t nLock = -1;
+
+        if (nUnlock >= 0) {
+            nErase = mdi_flash_Erase(
+                ptFlash, wAddr, (uint32_t)(len + 2));
+            nLock = mdi_flash_Lock(ptFlash);
+        }
+        if (nUnlock < 0 || nErase < 0 || nLock < 0) {
+            MLOGF(E, "MStorage: Blank Failed (%d/%d/%d).\n",
+                  (int)nUnlock, (int)nErase, (int)nLock);
+        }
 
         /* 同步 hwLastCrc 到当前 RAM 的 CRC，
          * 防止 Clock 检测到"CRC 变化"立即把当前 RAM 重写回 Flash。 */
@@ -111,7 +136,8 @@ void mstorage_EventHandle(mstorage_t *ptThis, uint32_t wEvent)
             uint16_t hwReadCrc = ptObj->pchStorageStartAddr[len];
             hwReadCrc |= (uint16_t)(ptObj->pchStorageStartAddr[len + 1] << 8);
 
-            uint16_t hwCalcCrc = mstorage_CalculateCrc16(ptObj->pchStorageStartAddr, len);
+            uint16_t hwCalcCrc = mstorage_CalculateCrc16(
+                ptObj->pchStorageStartAddr, len);
 
             if (hwReadCrc == hwCalcCrc) {
                 ptThis->hwLastCrc = hwReadCrc;
@@ -120,6 +146,8 @@ void mstorage_EventHandle(mstorage_t *ptThis, uint32_t wEvent)
                 MLOGF(E, "MStorage: CRC Mismatch! Read: 0x%04X, Calc: 0x%04X\n", 
                       hwReadCrc, hwCalcCrc);
             }
+        } else {
+            MLOGF(E, "MStorage: Read Failed (%d).\n", (int)nRet);
         }
     }
 }
@@ -219,8 +247,13 @@ int mstorage_Init(uintptr_t wObjectAddr, uintptr_t wObjectCfgAddr)
     uint16_t len   = ptObj->hwStorageLength;
 
     /* Initial read from Flash */
-    mdi_flash_Read(ptFlash, wAddr, ptObj->pchStorageStartAddr, 
-                   (uint32_t)(len + 2));
+    int32_t nRead = mdi_flash_Read(
+        ptFlash, wAddr, ptObj->pchStorageStartAddr,
+        (uint32_t)(len + 2));
+    if (nRead < 0) {
+        MLOGF(E, "MStorage: Initial read failed (%d).\n", (int)nRead);
+        return MODUS_EFAIL;
+    }
 
     bool bIsBlank = true;
     for (uint16_t i = 0; i < len + 2; i++) {
@@ -237,7 +270,8 @@ int mstorage_Init(uintptr_t wObjectAddr, uintptr_t wObjectCfgAddr)
         uint16_t hwReadCrc = ptObj->pchStorageStartAddr[len];
         hwReadCrc |= (uint16_t)(ptObj->pchStorageStartAddr[len + 1] << 8);
 
-        uint16_t hwCalcCrc = mstorage_CalculateCrc16(ptObj->pchStorageStartAddr, len);
+        uint16_t hwCalcCrc = mstorage_CalculateCrc16(
+            ptObj->pchStorageStartAddr, len);
 
         if (hwReadCrc == hwCalcCrc) {
             ptThis->hwLastCrc = hwReadCrc;

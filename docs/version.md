@@ -2,6 +2,7 @@
 
 | 版本 | 日期 | 状态 | 核心变更 |
 | :--- | :--- | :--- | :--- |
+| **v0.6.0.0** | 2026-09-17 | 稳定 | MDI 编译期能力接口落地；移除 waveform snapshot 与旧软定时器；完善 MStorage 错误处理 |
 | **v0.5.0.7** | 2026-09-07 | 稳定 | 修复 `MWAVEFORM_SNAPSHOT_ENABLE=0` 时 `cmd_snapshot` status 分支引用被守卫成员导致的编译失败 |
 | **v0.5.0.6** | 2026-08-07 | 稳定 | waveform V2.1：批量帧、快照帧、每变量刷新率、RTT 4096 与 10kHz 近无损连续流 |
 | **v0.5.0.5** | 2026-07-26 | 稳定 | 修复序号 0xFD 保留值引起的隔帧判定失误 |
@@ -24,6 +25,34 @@
 | **v0.2.0.1** | 2026-04-08 | 稳定 | MLOGF 支持 %lu 格式化打印 |
 | **v0.2.0.0** | 2026-04-07 | 稳定 | 新增 MStorage 持久化存储模块 |
 | **v0.1.0.0** | 2026-03-15 | 稳定 | 初始版本发布 |
+
+## [0.6.0.0] - 2026-09-17
+
+### MDI 编译期能力接口
+
+- 新增 `src/mdi/mdi_static.h`，使用 C11 `_Generic` 提供类型化的编译期能力分派。
+- 覆盖 PWM、GPIO、ADC 和 Stream 等语义明确的硬件操作。
+- 保留直接函数或 `static inline` 实现，避免运行时函数指针和通用
+  `read/write/control` 分派进入实时路径。
+
+### Waveform 简化
+
+- 移除 `MWAVEFORM_SNAPSHOT_ENABLE`、snapshot 环形缓冲、snapshot 帧和相关 API。
+- 移除 `wave snap` Shell 命令及 snapshot 协议帧 `0xFA`。
+- 保留连续 stream、批量帧和每通道刷新率；波形通道在应用初始化时注册和配置。
+- 删除 Makefile 中对应的 snapshot 配置和编译参数。
+
+### MODUS 基础组件清理
+
+- 移除 `msoft_timer_t` 及 `mbase_TimerInit/Start/Poll` 旧软定时器接口。
+- 清理 `mbase.c` 对 `perf_counter` 的无关依赖。
+- 删除已废弃的旧版 MDI 规划文档，避免与现行能力接口重复。
+
+### MStorage 可靠性改进
+
+- 检查 Flash 设备是否配置。
+- 检查 Flash 解锁、擦除、读写和加锁的返回值。
+- 初始化读取失败和存储操作失败时输出具体错误码，并阻止错误结果继续提交。
 
 ## [0.5.0.5] - 2026-07-26
 - **waveform 帧率异常问题修复**:

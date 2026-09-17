@@ -48,7 +48,6 @@ void HighFrequencyISR(void)
     s_id     = controller_id_output();
 
     mwaveform.Step();
-    mwaveform.SnapshotFeed();
 }
 ```
 
@@ -76,6 +75,6 @@ rtt server start 9091 1
 
 ## 6. 更多用法
 
-stream、每变量刷新率、snapshot、诊断和协议细节请参考：
+stream、每变量刷新率、诊断和协议细节请参考：
 
 - [MODUS 实时波形采集深度指南](../mdebug/mwaveform.md)

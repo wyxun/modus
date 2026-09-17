@@ -99,7 +99,7 @@ sequenceDiagram
     Poll->>Poll: 存入 achLine (行缓冲)
     Note over Poll: 检测到 \r 或 \n
     Poll->>Poll: dispatch (命令匹配)
-    Poll->>Cmd: 执行回调 (如 cmd_wave)
+    Poll->>Cmd: 执行已注册的命令回调
     Cmd->>RTT: SEGGER_RTT_Write (输出执行结果)
 ```
 

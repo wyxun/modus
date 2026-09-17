@@ -3,7 +3,6 @@
 #include "mdebug/util_debug.h"
 #include "mbase.h"
 #include <string.h>
-#include "perf_counter.h"
 
 #ifdef LINUX_POSIX
 #include <stdio.h>
@@ -471,38 +470,4 @@ mlist_t* mbase_GetBaseList(void)
 {
     // Return a reference to the global list object
     return &tListObject;
-}
-
-void mbase_TimerInit(msoft_timer_t *ptTimer)
-{
-    if (NULL == ptTimer) return;
-    ptTimer->lTargetMs = 0;
-    ptTimer->wInterval = 0;
-    ptTimer->bActive   = false;
-}
-
-void mbase_TimerStart(msoft_timer_t *ptTimer, uint32_t wDelayMs)
-{
-    if (NULL == ptTimer) return;
-    ptTimer->wInterval = wDelayMs;
-    ptTimer->lTargetMs = get_system_ms() + wDelayMs;
-    ptTimer->bActive   = true;
-}
-
-bool mbase_TimerPoll(msoft_timer_t *ptTimer)
-{
-    if (NULL == ptTimer || !ptTimer->bActive) {
-        return false;
-    }
-    int64_t lCurrent = get_system_ms();
-    if (lCurrent >= ptTimer->lTargetMs) {
-        if (ptTimer->wInterval > 0) {
-            /* 自动重载周期定时器，防止时间漂移 */
-            ptTimer->lTargetMs = lCurrent + ptTimer->wInterval;
-        } else {
-            ptTimer->bActive = false;
-        }
-        return true;
-    }
-    return false;
 }

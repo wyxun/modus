@@ -57,14 +57,6 @@
 #   define MWAVEFORM_BATCH_FLUSH_MS     10
 #endif
 
-#ifndef MWAVEFORM_SNAPSHOT_ENABLE
-#   define MWAVEFORM_SNAPSHOT_ENABLE    1
-#endif
-
-#ifndef MWAVEFORM_SNAPSHOT_DEPTH
-#   define MWAVEFORM_SNAPSHOT_DEPTH     64
-#endif
-
 #ifndef MWAVEFORM_DEFAULT_SAMPLE_PERIOD_NS
 #   define MWAVEFORM_DEFAULT_SAMPLE_PERIOD_NS  1000000u
 #endif
@@ -78,10 +70,6 @@
 
 #define MWAVEFORM_BATCH_MAX_FRAME_SIZE          \
     (17 + MWAVEFORM_BATCH_SIZE *                \
-         (MWAVEFORM_MASK_BYTES + 2 * MWAVEFORM_MAX_CHANNELS))
-
-#define MWAVEFORM_SNAPSHOT_MAX_FRAME_SIZE       \
-    (21 + MWAVEFORM_SNAPSHOT_DEPTH *            \
          (MWAVEFORM_MASK_BYTES + 2 * MWAVEFORM_MAX_CHANNELS))
 
 /*============================ MACROS ========================================*/
@@ -110,12 +98,6 @@ typedef struct {
     uint32_t (*GetLastIntervalDrops)(void);     /* Drops in last 1s */
     uint32_t (*GetRTTFullCount)(void);          /* RTT congestion events */
     void     (*ClearDropCount)(void);
-    int      (*SnapshotStart)(uint16_t depth, uint32_t periodNs);
-    void     (*SnapshotFeed)(void);
-    int      (*SnapshotTrigger)(void);
-    void     (*SnapshotStop)(void);
-    int      (*SnapshotIsArmed)(void);
-    uint16_t (*GetSnapshotDepth)(void);
 
 } mwaveform_api_t;
 
@@ -145,12 +127,6 @@ typedef struct {
     uint32_t (*GetLastIntervalDrops)(void);
     uint32_t (*GetRTTFullCount)(void);
     void     (*ClearDropCount)(void);
-    int      (*SnapshotStart)(uint16_t depth, uint32_t periodNs);
-    void     (*SnapshotFeed)(void);
-    int      (*SnapshotTrigger)(void);
-    void     (*SnapshotStop)(void);
-    int      (*SnapshotIsArmed)(void);
-    uint16_t (*GetSnapshotDepth)(void);
 } mwaveform_api_t;
 
 extern const mwaveform_api_t mwaveform;

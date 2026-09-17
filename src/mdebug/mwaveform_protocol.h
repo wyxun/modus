@@ -9,7 +9,6 @@
 #define MWAVEFORM_FRAME_TYPE_DESC            0xFD
 #define MWAVEFORM_FRAME_TYPE_META            0xFE
 #define MWAVEFORM_FRAME_TYPE_BATCH           0xFC
-#define MWAVEFORM_FRAME_TYPE_SNAPSHOT        0xFA
 
 typedef struct {
     char    achName[8];
@@ -59,15 +58,6 @@ typedef struct {
                            uint8_t chCount, uint16_t ringDepth,
                            uint16_t startOffset, uint16_t sampleCount,
                            uint32_t startSampleIndex, uint32_t periodNs);
-
-    /**
-     * @brief Pack one triggered snapshot batch
-     */
-    uint16_t (*pack_snapshot)(uint8_t *pchBuffer,
-                              const mwaveform_batch_sample_t *atSamples,
-                              uint8_t chCount, uint16_t ringDepth,
-                              uint16_t startOffset, uint16_t sampleCount,
-                              uint32_t periodNs, uint32_t snapshotId);
 
 } mwaveform_protocol_t;
 

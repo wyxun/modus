@@ -152,8 +152,7 @@ static uint16_t pack_batch_common(uint8_t *pchBuffer, uint8_t frameType,
                                   uint8_t chCount, uint16_t sampleCount,
                                   uint16_t ringDepth, uint16_t startOffset,
                                   uint32_t startSampleIndex,
-                                  uint32_t periodNs,
-                                  uint32_t snapshotId)
+                                  uint32_t periodNs)
 {
     uint16_t hwIdx = 0;
     uint8_t chMaskBytes = (chCount + 7) / 8;
@@ -171,11 +170,6 @@ static uint16_t pack_batch_common(uint8_t *pchBuffer, uint8_t frameType,
     hwIdx += 2;
     put_u32(&pchBuffer[hwIdx], periodNs);
     hwIdx += 4;
-    if (frameType == MWAVEFORM_FRAME_TYPE_SNAPSHOT) {
-        put_u32(&pchBuffer[hwIdx], snapshotId);
-        hwIdx += 4;
-    }
-
     for (uint16_t s = 0; s < sampleCount; s++) {
         uint16_t hwSrc = s;
 
@@ -212,21 +206,7 @@ static uint16_t default_pack_batch(uint8_t *pchBuffer,
     return pack_batch_common(pchBuffer, MWAVEFORM_FRAME_TYPE_BATCH,
                              atSamples, chCount, sampleCount,
                              ringDepth, startOffset, startSampleIndex,
-                             periodNs, 0u);
-}
-
-static uint16_t default_pack_snapshot(
-    uint8_t *pchBuffer,
-    const mwaveform_batch_sample_t *atSamples,
-    uint8_t chCount, uint16_t ringDepth, uint16_t startOffset,
-    uint16_t sampleCount,
-    uint32_t periodNs, uint32_t snapshotId)
-{
-    return pack_batch_common(pchBuffer, MWAVEFORM_FRAME_TYPE_SNAPSHOT,
-                             atSamples, chCount, sampleCount, ringDepth,
-                             startOffset,
-                             atSamples[startOffset].wSampleIndex,
-                             periodNs, snapshotId);
+                             periodNs);
 }
 
 const mwaveform_protocol_t default_waveform_protocol = {
@@ -234,5 +214,4 @@ const mwaveform_protocol_t default_waveform_protocol = {
     .pack_desc     = default_pack_desc,
     .pack_meta     = default_pack_meta,
     .pack_batch    = default_pack_batch,
-    .pack_snapshot = default_pack_snapshot,
 };
