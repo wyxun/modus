@@ -101,7 +101,10 @@
 #define MDI_ADC_DMA_IsReady(R) MDI_OP(R, _adc_dma_IsReady)()
 #define MDI_ADC_DMA_IsOverrun(R) MDI_OP(R, _adc_dma_IsOverrun)()
 #define MDI_ADC_DMA_CompletedIndex(R) MDI_OP(R, _adc_dma_CompletedIndex)()
-#define MDI_ADC_DMA_Acknowledge(R) MDI_OP(R, _adc_dma_Acknowledge)()
+#define MDI_ADC_DMA_Published(R) MDI_OP(R, _adc_dma_Published)()
+#define MDI_ADC_DMA_CompletedIndexAt(R, P) \
+    MDI_OP(R, _adc_dma_CompletedIndexAt)((P))
+#define MDI_ADC_DMA_Acknowledge(R, P) MDI_OP(R, _adc_dma_Acknowledge)((P))
 
 /**
  * Bind only the DMA publication flag. The DMA ISR calls Publish after the
@@ -122,14 +125,31 @@
         return (uint32_t)((PUBLISHED) - (CONSUMED)) >                            \
                (uint32_t)(BUFFER_COUNT);                                         \
     }                                                                            \
+    MDI_INLINE uint32_t MDI_OP(NAME, _adc_dma_Published)(void)                   \
+    {                                                                            \
+        return (uint32_t)(PUBLISHED);                                            \
+    }                                                                            \
+    MDI_INLINE uint32_t MDI_OP(NAME, _adc_dma_CompletedIndexAt)(                  \
+        uint32_t wPublished)                                                     \
+    {                                                                            \
+        return (uint32_t)((wPublished - 1U) % (BUFFER_COUNT));                   \
+    }                                                                            \
     MDI_INLINE uint32_t MDI_OP(NAME, _adc_dma_CompletedIndex)(void)              \
     {                                                                            \
-        return (uint32_t)(((PUBLISHED) - 1U) % (BUFFER_COUNT));                  \
+        return MDI_OP(NAME, _adc_dma_CompletedIndexAt)((PUBLISHED));             \
     }                                                                            \
-    MDI_INLINE mdi_status_t MDI_OP(NAME, _adc_dma_Acknowledge)(void)             \
+    MDI_INLINE mdi_status_t MDI_OP(NAME, _adc_dma_Acknowledge)(                   \
+        uint32_t wPublished)                                                     \
     {                                                                            \
-        if (!MDI_OP(NAME, _adc_dma_IsReady)()) { return MDI_BUSY; }              \
-        (CONSUMED) = (PUBLISHED);                                                \
+        const uint32_t wCurrent = (PUBLISHED);                                  \
+        const uint32_t wTargetDelta =                                           \
+            (uint32_t)(wPublished - (CONSUMED));                                \
+        const uint32_t wCurrentDelta =                                          \
+            (uint32_t)(wCurrent - (CONSUMED));                                  \
+        if (wTargetDelta == 0U || wTargetDelta > wCurrentDelta) {               \
+            return MDI_BUSY;                                                     \
+        }                                                                        \
+        (CONSUMED) = wPublished;                                                 \
         return MDI_OK;                                                           \
     }
 

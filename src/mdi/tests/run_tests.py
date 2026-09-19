@@ -54,8 +54,11 @@ def main():
     dump = tool("ARM_OBJDUMP", "llvm-objdump",
                 "D:/software/llvm_for_arm/bin/llvm-objdump.exe")
     common = ["-std=c11", "-Wall", "-Wextra", "-Werror",
+              "-Wno-int-to-pointer-cast",
               f"-I{MDI}", f"-I{HERE}", f"-I{ROOT / 'modus/src'}",
-              f"-I{ROOT / 'peripheral/stm32g431'}"]
+              f"-I{ROOT / 'peripheral/stm32g431'}",
+              f"-I{ROOT / 'vendor/cortex-m/cmsis_device_g4/Include'}",
+              f"-I{ROOT / 'vendor/cortex-m/cmsis_core'}"]
     with tempfile.TemporaryDirectory(prefix="mdi_") as temp:
         work = Path(temp)
         exe = work / ("contract.exe" if os.name == "nt" else "contract")
@@ -71,13 +74,16 @@ def main():
             "wrong_duty_units": 'MDI_PWM_Frame(variable) x = {0}; '
                                 '(void)MDI_PWM_SetDuty(variable, &x);',
             "unsupported_capability": '(void)MDI_PWM_SetFrequency(led, 100U);',
+            "input_only_write": '(void)MDI_IO_Write(input_only, 1U);',
+            "output_only_read": '(void)MDI_IO_Read(output_only);',
         }
         for name, body in negatives.items():
             source = work / f"{name}.c"
             source.write_text('#include "fixtures.h"\nvoid misuse(void) {'
                               + body + '}\n', encoding="utf-8")
             output = run([host, *common, "-fsyntax-only", source], False)
-            expected = "implicit declaration" if name.startswith("unsupported") \
+            expected = "implicit declaration" if name.startswith((
+                "unsupported", "input", "output")) \
                 else "incompatible pointer"
             assert expected in output.lower(), output
             print(f"PASS rejects {name}")
@@ -95,6 +101,24 @@ def main():
                 + '\n#define BAD_PORTS(X,V) '
                 'X(V,test_a_in,test_a_out,BAD_PINS)\n'
                 'MDI_STM32_IO_BIND(bad,2,BAD_PORTS)\n', encoding="utf-8")
+            output = run([host, *common, "-fsyntax-only", source], False)
+            assert "static assertion failed" in output.lower(), output
+            print(f"PASS rejects {name}")
+
+        direction_negatives = {
+            "input_caps_output":
+                '#define P(X,V,...) X(V,0,4,0)\n'
+                '#define Q(X,V) X(V,test_a_in,test_a_out,P)\n'
+                'MDI_STM32_IO_BIND_INPUT_CAPS(bad,1,Q,MDI_IO_CAP_OUTPUT)',
+            "output_caps_input":
+                '#define P(X,V,...) X(V,0,4,0)\n'
+                '#define Q(X,V) X(V,test_a_in,test_a_out,P)\n'
+                'MDI_STM32_IO_BIND_OUTPUT_CAPS(bad,1,Q,MDI_IO_CAP_INPUT)',
+        }
+        for name, body in direction_negatives.items():
+            source = work / f"{name}.c"
+            source.write_text('#include "fixtures.h"\n' + body + '\n',
+                              encoding="utf-8")
             output = run([host, *common, "-fsyntax-only", source], False)
             assert "static assertion failed" in output.lower(), output
             print(f"PASS rejects {name}")

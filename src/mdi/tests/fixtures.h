@@ -23,6 +23,12 @@ extern volatile uint32_t test_adc_mean[3];
 extern volatile uint32_t test_adc_mean_seq;
 extern volatile uint32_t test_adc_published;
 extern volatile uint32_t test_adc_consumed;
+extern volatile bool test_adc_inject_publish;
+extern volatile uint32_t test_adc_race_mean[3];
+extern volatile uint32_t test_adc_race_mean_seq;
+extern volatile bool test_adc_race_mean_valid;
+extern volatile uint32_t test_adc_race_rate;
+extern volatile uint16_t *test_adc_race_raw(void);
 extern volatile uint32_t test_sample_seq;
 extern volatile uint32_t test_sample_ready;
 extern volatile uint32_t test_pwm_fault_latched;
@@ -48,6 +54,14 @@ extern test_timer_t test_timer;
 
 MDI_STM32_IO_BIND(led, 1, LED_PORTS)
 MDI_STM32_IO_BIND(data, 4, DATA_PORTS)
+
+#define INPUT_PINS(X, V, ...) X(V, 0, 4, 0)
+#define INPUT_PORTS(X, V) X(V, test_a_in, test_a_out, INPUT_PINS)
+MDI_STM32_IO_BIND_INPUT_CAPS(input_only, 1, INPUT_PORTS, MDI_IO_CAP_INPUT)
+#define OUTPUT_PINS(X, V, ...) X(V, 0, 5, 0)
+#define OUTPUT_PORTS(X, V) X(V, test_a_in, test_a_out, OUTPUT_PINS)
+MDI_STM32_IO_BIND_OUTPUT_CAPS(output_only, 1, OUTPUT_PORTS,
+                              MDI_IO_CAP_OUTPUT)
 
 #define SCL_PINS(X, V, ...) X(V, 0, 8, 0)
 #define SDA_PINS(X, V, ...) X(V, 0, 7, 0)
@@ -144,6 +158,14 @@ MDI_ADC_CHANNEL_BIND(raw_adc, test_adc[3], 0xFFU, 8)
 MDI_ADC_DMA_FLAG_BIND(test_adc_dma, test_adc_published, test_adc_consumed, 2U)
 MDI_ADC_MEAN_BIND(test_adc_mean_filter, 4U, 3U, ADC_MEAN_CHANNELS,
                   test_adc_mean, test_adc_mean_seq)
+#define RACE_ADC_RAW_CHANNELS(X, ...)                                            \
+    X(__VA_ARGS__, u, 0)                                                         \
+    X(__VA_ARGS__, v, 1)                                                         \
+    X(__VA_ARGS__, w, 2)
+MDI_ADC_MEAN_GROUP_BIND(test_adc_race_mean, test_adc_dma, test_adc_race_raw(),
+                        4U, 3U, RACE_ADC_RAW_CHANNELS, test_adc_race_mean,
+                        test_adc_race_mean_seq, test_adc_race_mean_valid,
+                        test_adc_race_rate, 1000000U)
 MDI_ADC_CHANNEL_SEQ_BIND(mean_u, test_adc_mean[0], 0xFFFFU, 0,
                          test_adc_mean_seq)
 MDI_ADC_CHANNEL_SEQ_BIND(mean_v, test_adc_mean[1], 0xFFFFU, 0,

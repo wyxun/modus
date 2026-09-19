@@ -32,7 +32,7 @@
     {                                                                            \
         const mdi_i2c_transfer_t tTransfer = {                                   \
             .pchTx = &chRegister, .wTxLength = 1U, .pchRx = pchData,             \
-            .wRxLength = wLength, .wTimeoutUs = 1U, .hwAddress7 = (DEV7)         \
+            .wRxLength = wLength, .wTimeoutUs = 1000U, .hwAddress7 = (DEV7)      \
         };                                                                       \
         return MDI_I2C_Transfer(BUS, &tTransfer);                                \
     }                                                                            \
@@ -42,7 +42,7 @@
         const uint8_t chFrame[2] = {chRegister, chValue};                        \
         const mdi_i2c_transfer_t tTransfer = {                                   \
             .pchTx = chFrame, .wTxLength = 2U, .pchRx = NULL, .wRxLength = 0U,   \
-            .wTimeoutUs = 1U, .hwAddress7 = (DEV7)                               \
+            .wTimeoutUs = 1000U, .hwAddress7 = (DEV7)                             \
         };                                                                       \
         return MDI_I2C_Transfer(BUS, &tTransfer);                                \
     }

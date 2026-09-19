@@ -76,16 +76,22 @@
     MDI_INLINE mdi_status_t MDI_OP(NAME, _adc_mean_Update)(void)                 \
     {                                                                            \
         uint32_t wIndex;                                                         \
+        uint32_t wPublished;                                                     \
+        bool bOverrun;                                                           \
         mdi_status_t eStatus;                                                    \
         if (!MDI_ADC_DMA_IsReady(DMA)) {                                         \
             return (VALID) ? MDI_OK : MDI_BUSY;                                  \
         }                                                                        \
-        wIndex = MDI_ADC_DMA_CompletedIndex(DMA);                                \
+        wPublished = MDI_ADC_DMA_Published(DMA);                                 \
+        bOverrun = MDI_ADC_DMA_IsOverrun(DMA);                                   \
+        wIndex = MDI_ADC_DMA_CompletedIndexAt(DMA, wPublished);                   \
         eStatus = MDI_ADC_MeanProcess(                                           \
             NAME, &(RAW)[wIndex * (SAMPLE_COUNT) * (CHANNEL_COUNT)]);            \
         if (eStatus != MDI_OK) { return eStatus; }                               \
         (VALID) = true;                                                          \
-        return MDI_ADC_DMA_Acknowledge(DMA);                                     \
+        eStatus = MDI_ADC_DMA_Acknowledge(DMA, wPublished);                      \
+        if (eStatus != MDI_OK) { return eStatus; }                               \
+        return bOverrun ? MDI_OVERRUN : MDI_OK;                                  \
     }
 
 #define MDI_ADC_MeanUpdate(R) MDI_OP(R, _adc_mean_Update)()
@@ -112,13 +118,15 @@
         uint32_t wCode;                                                          \
         if (ptValue == NULL) { return MDI_INVALID; }                             \
         eStatus = MDI_ADC_MeanUpdate(GROUP);                                     \
-        if (eStatus != MDI_OK) { return eStatus; }                               \
+        if (eStatus != MDI_OK && eStatus != MDI_OVERRUN) {                       \
+            return eStatus;                                                       \
+        }                                                                        \
         wSequence = (SEQ);                                                       \
         if ((wSequence & 1U) != 0U) { return MDI_BUSY; }                         \
         wCode = (((uint32_t)(VALUE) >> (SHIFT)) & (uint32_t)(MASK));             \
         if ((SEQ) != wSequence) { return MDI_BUSY; }                             \
         ptValue->wCode = wCode;                                                  \
-        return MDI_OK;                                                           \
+        return eStatus;                                                          \
     }
 
 #endif /* MDI_FEATURE_ADC_MEAN_H */

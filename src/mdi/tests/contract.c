@@ -8,6 +8,7 @@
 #include <string.h>
 #include <stdint.h>
 #include "fixtures.h"
+#include "mdi/i2c.h"
 
 /* Test-owned fake registers, never used by the hardware binding. */
 volatile uint32_t test_a_in;
@@ -23,12 +24,26 @@ volatile uint32_t test_adc_mean[3];
 volatile uint32_t test_adc_mean_seq;
 volatile uint32_t test_adc_published;
 volatile uint32_t test_adc_consumed;
+volatile bool test_adc_inject_publish;
+volatile uint32_t test_adc_race_mean[3];
+volatile uint32_t test_adc_race_mean_seq;
+volatile bool test_adc_race_mean_valid;
+volatile uint32_t test_adc_race_rate;
 volatile uint32_t test_sample_seq;
 volatile uint32_t test_sample_ready;
 volatile uint32_t test_pwm_fault_latched;
 volatile uint32_t test_pwm_fault_source;
 volatile uint32_t test_ccr[4];
 test_timer_t test_timer;
+
+volatile uint16_t *test_adc_race_raw(void)
+{
+    if (test_adc_inject_publish) {
+        test_adc_inject_publish = false;
+        MDI_ADC_DMA_Publish(test_adc_dma);
+    }
+    return test_adc_dma;
+}
 
 /** @brief Check digital mappings and argument evaluation.
  * @return None.
@@ -142,14 +157,83 @@ static void test_AdcDmaMean(void)
     assert(tValue.wCode == 6U);
     assert(MDI_ADC_Read(mean_w, &tValue) == MDI_OK);
     assert(tValue.wCode == 7U);
-    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma) == MDI_OK);
+    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma, 1U) == MDI_OK);
     assert(!MDI_ADC_DMA_IsReady(test_adc_dma));
+
+    /* A publication during reduction remains pending for the next pass. */
+    test_adc_published = 1U;
+    test_adc_consumed = 0U;
+    MDI_ADC_DMA_Publish(test_adc_dma);
+    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma, 1U) == MDI_OK);
+    assert(test_adc_consumed == 1U);
+    assert(MDI_ADC_DMA_IsReady(test_adc_dma));
+    assert(MDI_ADC_DMA_CompletedIndexAt(test_adc_dma, 2U) == 1U);
+
     test_adc_published = 4U;
     test_adc_consumed = 1U;
     assert(MDI_ADC_DMA_IsOverrun(test_adc_dma));
     assert(MDI_ADC_Read(mean_u, &tValue) == MDI_OK);
     test_adc_mean_seq = 3U;
     assert(MDI_ADC_Read(mean_u, &tValue) == MDI_BUSY);
+}
+
+/** @brief Check DMA race retention, overflow recovery and sequence wrap.
+ * @return None.
+ */
+static void test_AdcDmaRecovery(void)
+{
+    uint32_t wIndex;
+
+    for (wIndex = 0U; wIndex < 24U; ++wIndex) {
+        test_adc_dma[wIndex] = (uint16_t)(100U + wIndex);
+    }
+    test_adc_mean_seq = 0U;
+    test_adc_race_mean_seq = 0U;
+    test_adc_race_mean_valid = false;
+    test_adc_published = 1U;
+    test_adc_consumed = 0U;
+    test_adc_inject_publish = true;
+    assert(MDI_ADC_MeanUpdate(test_adc_race_mean) == MDI_OK);
+    assert(test_adc_published == 2U && test_adc_consumed == 1U);
+    assert(MDI_ADC_DMA_IsReady(test_adc_dma));
+
+    test_adc_published = 3U;
+    test_adc_consumed = 0U;
+    test_adc_inject_publish = false;
+    assert(MDI_ADC_MeanUpdate(test_adc_race_mean) == MDI_OVERRUN);
+    assert(test_adc_consumed == 3U);
+    assert(!MDI_ADC_DMA_IsReady(test_adc_dma));
+    assert(test_adc_race_mean_valid);
+
+    test_adc_published = 0U;
+    test_adc_consumed = 0U;
+    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma, 1U) == MDI_BUSY);
+    assert(test_adc_consumed == 0U);
+
+    test_adc_published = UINT32_MAX;
+    test_adc_consumed = UINT32_MAX - 1U;
+    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma, UINT32_MAX) == MDI_OK);
+    test_adc_published = 0U;
+    assert(MDI_ADC_DMA_Acknowledge(test_adc_dma, 0U) == MDI_OK);
+    assert(test_adc_consumed == 0U);
+}
+
+/** @brief Check hardware-I2C timeout conversion and error precedence.
+ * @return None.
+ */
+static void test_Stm32I2cContract(void)
+{
+    I2C_TypeDef tI2c = {0};
+
+    assert(MDI_STM32_I2C_CLOCK_HZ == 170000000U);
+    assert(MDI_STM32_I2C_POLL_CYCLES == 32U);
+    assert(MDI_STM32_I2C_POLLS_PER_US == 5U);
+    assert(mdi_stm32_i2c_PollBudget(10U, 3U, 100U) == 30U);
+    assert(mdi_stm32_i2c_PollBudget(100U, 3U, 100U) == 100U);
+    assert(mdi_stm32_i2c_PollBudget(0U, 3U, 100U) == 0U);
+    tI2c.ISR = I2C_ISR_STOPF | I2C_ISR_NACKF;
+    assert(mdi_stm32_i2c_wait(&tI2c, I2C_ISR_STOPF, 10U) ==
+           MDI_IO_ERROR);
 }
 
 /** @brief Check completion-flag ownership around a three-phase frame.
@@ -405,6 +489,8 @@ int main(void)
     test_Sample();
     test_StableSample();
     test_AdcDmaMean();
+    test_AdcDmaRecovery();
+    test_Stm32I2cContract();
     test_CompletedSample();
     test_FocCycle();
     test_Pwm();

@@ -24,8 +24,14 @@ typedef enum {
     MDI_RANGE = -2,
     MDI_BUSY = -3,
     MDI_IO_ERROR = -4,
-    MDI_TIMEOUT = -5
+    MDI_TIMEOUT = -5,
+    /* Runtime optional providers use ENOTSUP; absent static capabilities fail
+     * during compilation because their operation is not generated. */
+    MDI_ENOTSUP = -6,
+    MDI_OVERRUN = -7
 } mdi_status_t;
+
+#define MDI_STATUS_ENOTSUP MDI_ENOTSUP
 
 /* Compile-time IO wiring capabilities. Mode registers and ownership remain
  * board-binding responsibilities; these bits document and constrain how a
@@ -102,6 +108,7 @@ typedef struct {
     uint32_t wTxLength;
     uint8_t *pchRx;
     uint32_t wRxLength;
+    /* Maximum duration of each blocking bus phase, in microseconds. */
     uint32_t wTimeoutUs;
     uint16_t hwAddress7;
 } mdi_i2c_transfer_t;

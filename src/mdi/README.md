@@ -48,10 +48,10 @@ peripheral/<chip>/mdi/
 | IO 能力 | `MDI_IO_Width`、`MDI_IO_Capabilities` | 编译期宽度、输入/输出/开漏约束 |
 | ADC/采样 | `MDI_Sample_Frame`、`MDI_Sample_Read` | 一次读取已经完成的整帧，不启动转换 |
 | 稳定帧 | `MDI_Sample_ReadStable`、`MDI_Sample_ReadCompleted` | 序列号或硬件完成标志保护生产者所有权 |
-| ADC/DMA feature | `MDI_ADC_Read`、`MDI_ADC_SetSampleFrequency` | 应用按通道读取；DMA 发布和均值处理留在 feature/芯片适配内部 |
+| ADC/DMA feature | `MDI_ADC_Read`、`MDI_ADC_SetSampleFrequency` | 应用按通道读取；DMA 发布和均值处理留在 feature/芯片适配内部，溢出恢复返回 `MDI_OVERRUN` |
 | PWM | `MDI_PWM_SetDuty`、`MDI_PWM_Stage`、`MDI_PWM_Commit` | Q16 占空比或 timer tick，显式提交生效 |
 | PWM 生命周期 | `MDI_PWM_Enable`、`MDI_PWM_SafeStop`、`MDI_PWM_ClearFault` | 输出门控、停机和故障锁存 |
-| 总线 | `MDI_I2C_Transfer`、`MDI_SPI_Transfer` | 有界同步事务，缓冲区只在调用期间借用 |
+| 总线 | `MDI_I2C_Transfer`、`MDI_SPI_Transfer` | 有界同步事务，缓冲区只在调用期间借用；`wTimeoutUs` 是每个阻塞阶段的预算 |
 | 设备组合 | `MDI_I2C_Reg8_Read`、`MDI_SPI_EEPROM_Read/Write` | 把寄存器命令、页边界和片选规则组合到总线事务 |
 | FOC 周期 | `MDI_FOC_RunCycle`、`MDI_FOC_RunCycleFast` | 一次完成采样读取、三相占空比提交和 Commit |
 
@@ -78,6 +78,10 @@ I2C、EEPROM 等可选能力。feature 可以通过绑定宏接受编译期参�
 `MDI_ADC_Read` 和可选的 `MDI_ADC_SetSampleFrequency`，DMA flag、缓冲区所有权和均值
 过程由 feature 与芯片后端内部完成；若采样由轮询 tick 驱动，应用还需在任务上下文
 调用该芯片实例提供的服务函数完成调度和滤波发布。
+
+DMA 块处理按发布序号确认：`MDI_ADC_MeanUpdate` 只确认本次处理开始时捕获的发布号，
+处理期间新完成的块会继续保持 pending。GPIO 绑定按能力生成接口；input-only 资源不
+生成 `MDI_IO_Write`，output-only 资源不生成 `MDI_IO_Read`。
 
 ### 编译期绑定不等于自动零开销
 
