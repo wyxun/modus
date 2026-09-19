@@ -1,0 +1,5 @@
+# MDI is maintained from Windows and uses one explicit text representation.
+*.c  text eol=crlf
+*.h  text eol=crlf
+*.md text eol=crlf
+*.py text eol=crlf

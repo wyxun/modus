@@ -15,6 +15,23 @@ Modus 是一个轻量级、面向对象且高度可移植的嵌入式软件框�
 - **跨平台一致性**：完美适配 **Keil (AC6)**, **LLVM (Clang)**, **GCC**，支持嵌入式裸机与
   **POSIX (Linux/WSL)** 环境。
 
+### MDI 硬件接口
+
+MODUS 的 MDI 接口位于 [`src/mdi/`](src/mdi/)。它按 `core` 公共契约、`feature` 可组合
+能力和 `peripheral/<chip>/mdi` 芯片实例分层，通过编译期资源绑定生成直接的
+`static inline` 访问。应用可以一次读取完整 ADC 帧、一次提交多通道 PWM，或调用有界
+I2C/SPI 事务，不需要运行时对象、设备查找或函数指针表。
+
+芯片工程接入时只需提供实例头文件、寄存器后端和初始化/故障生命周期；公共 MDI 不包含
+厂商头文件。框架设计和接入文档按以下入口查看：
+
+- [`src/mdi/DESIGN.md`](src/mdi/DESIGN.md)：稳定的层次、契约、绑定规则和验证要求。
+- [`src/mdi/README.md`](src/mdi/README.md)：公共接口速查、芯片实例接入和示例。
+- [`src/mdi/core/README.md`](src/mdi/core/README.md)：芯片无关的公共类型和静态绑定规则。
+- [`src/mdi/feature/README.md`](src/mdi/feature/README.md)：总线事务和其他可组合能力。
+- [`../peripheral_template/README.md`](../peripheral_template/README.md)：32 位寄存器模型的
+  多外设参考实例。
+
 ---
 
 ## 快速开发
@@ -243,7 +260,7 @@ J-Link RTT Viewer 即用。可通过 `mshell_SetIO()` 将 I/O 后端从默认 RT
 #include "mdebug/mshell.h"
 
 static void cmd_burn(const char *args) {
-    MLOGF(I, "Burn-in started\r\n");
+    MLOGF(I, "Burn-in started\n");
 }
 /* 零代码初始化：在 .c 中定义宏即可自动注册 */
 MODUS_SHELL_CMD(burn, cmd_burn, "Burn-in test");

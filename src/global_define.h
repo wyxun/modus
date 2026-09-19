@@ -5,7 +5,7 @@
 #define GENERAL_PURPOSE                 0               //!< General purpose 
 #define MODUS_PURPOSE                    GENERAL_PURPOSE //!< MODUS purpose   
 #define MODUS_INTERFACE_VERSION          6               //!< MODUS interface version
-#define MODUS_MAJOR_VERSION              0               //!< MODUS major version
+#define MODUS_MAJOR_VERSION              1               //!< MODUS major version
 #define MODUS_MINOR_VERSION              0
 
 #define MODUS_VERSION                 {                                         \

@@ -29,7 +29,7 @@
  *   log -I -D   同时切换多个级别
  *   log         查看当前各级别开关状态
  *
- * g_chGLogMask 启动时默认值由 MLOG_MASK_DEFAULT 决定（默认全开 0x0F）；
+ * g_chGLogMask 启动时默认值由 MLOG_MASK_DEFAULT 决定（默认全开 0x1F）；
  * 可在 userconfig.h 中覆盖（如仅保留 E+W：#define MLOG_MASK_DEFAULT 0x03u）。
  *
  * 替换为 UART 后端（非 RTT）：
