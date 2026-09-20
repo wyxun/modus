@@ -8,7 +8,7 @@
 #ifndef __MDI_HW_H__
 #define __MDI_HW_H__
 
-#include "mdi/mdi.h"
+#include "mdi/legacy/mdi.h"
 
 typedef struct {
     mdi_gpio_t   *ptLedStatus;      /**< 状态 LED    */

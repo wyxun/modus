@@ -9,7 +9,7 @@
 #define _BV(__N)    ((uint32_t)1<<(__N))
 #define TOP         (0x0FFF)
 
-/* 运行期日志掩码，初始值由 MLOG_MASK_DEFAULT 决定（默认全开 0x0F）
+/* 运行期日志掩码，初始值由 MLOG_MASK_DEFAULT 决定（默认全开 0x1F）
  * 可通过 mshell log 命令动态修改，或在 userconfig.h 中覆盖 MLOG_MASK_DEFAULT */
 uint8_t g_chGLogMask = MLOG_MASK_DEFAULT;
 

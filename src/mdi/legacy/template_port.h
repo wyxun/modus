@@ -15,7 +15,7 @@
 #ifndef __MDI_HW_H__
 #define __MDI_HW_H__
 
-#include "mdi/mdi.h"
+#include "mdi/legacy/mdi.h"
 
 /*============================================================================
  * 项目硬件资源池定义

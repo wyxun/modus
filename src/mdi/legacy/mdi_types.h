@@ -13,6 +13,11 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#ifndef MDI_LEGACY_STATUS_T
+#define MDI_LEGACY_STATUS_T
+typedef int32_t mdi_legacy_status_t;
+#endif
+
 /*============================================================================
  * GPIO (控制类)
  *===========================================================================*/
@@ -158,7 +163,7 @@ typedef struct {
  * 示例 — 一个有 2 个 LED + 3 个串口 + 2 个按键的项目：
  *
  *   // mdi_hw.h
- *   #include "mdi/mdi.h"
+ *   #include "mdi/legacy/mdi.h"
  *
  *   typedef struct {
  *       mdi_gpio_t   *ptLedStatus;
@@ -193,4 +198,3 @@ typedef struct {
  *===========================================================================*/
 
 #endif  /* __MDI_TYPES_H__ */
-

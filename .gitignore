@@ -9,5 +9,6 @@
 *.log
 *.hex
 *.out
+__pycache__/
 *.map
 CLAUDE.md

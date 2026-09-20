@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 #include "mbase.h"
-#include "mdi/mdi.h"
+#include "mdi/legacy/mdi.h"
 
 /**
  * @brief Storage data descriptor
