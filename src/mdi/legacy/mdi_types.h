@@ -22,6 +22,12 @@ typedef int32_t mdi_legacy_status_t;
  * GPIO (控制类)
  *===========================================================================*/
 
+typedef struct mdi_gpio_fast_t {
+    volatile uint32_t *pSet;
+    volatile uint32_t *pReset;
+    uint32_t wMask;
+} mdi_gpio_fast_t;
+
 /**
  * @brief GPIO 电平枚举
  */
@@ -41,6 +47,7 @@ typedef struct {
     int32_t  (*fnSet)   (void *pPriv, mdi_gpio_level_t eLevel);
     int32_t  (*fnGet)   (void *pPriv);
     int32_t  (*fnToggle)(void *pPriv);
+    const mdi_gpio_fast_t *ptFast; /**< transitional native fast path */
 } mdi_gpio_t;
 
 /*============================================================================
@@ -148,6 +155,20 @@ typedef struct {
     int32_t  (*fnUnlock)(void *pPriv);
     int32_t  (*fnLock)  (void *pPriv);
 } mdi_flash_t;
+
+/* Transitional timer descriptor used by the pre-0.6 board adapters.  New
+ * hardware bindings should expose timer capabilities as compile-time tokens;
+ * this type remains only while those adapters are being migrated. */
+typedef void (*mdi_timer_callback_t)(void *pContext);
+typedef struct {
+    void *pPriv;
+    int32_t (*fnSetFrequency)(void *pPriv, uint32_t wFrequencyHz);
+    int32_t (*fnRegisterCallback)(void *pPriv,
+                                  mdi_timer_callback_t fnCallback,
+                                  void *pContext);
+    int32_t (*fnStart)(void *pPriv);
+    int32_t (*fnStop)(void *pPriv);
+} mdi_timer_t;
 
 /*============================================================================
  * 全局硬件资源池 — 由各项目自行定义

@@ -15,6 +15,16 @@ __attribute__((weak)) void mstorage_SetDefaultFlash(void *ptFlash)
     (void)ptFlash; /* mstorage not included in this build */
 }
 
+/* Board projects override these no-op hooks from their peripheral/mdi layer.
+ * Keeping the weak defaults here lets generic MODUS targets link unchanged. */
+__attribute__((weak)) void mdi_Service(void)
+{
+}
+
+__attribute__((weak)) void mdi_Clock(void)
+{
+}
+
 #ifdef LINUX_POSIX
 #include <stdio.h>
 #endif
@@ -127,6 +137,8 @@ void modus_Run(void)
         return;
     }
 
+    mdi_Service();
+
     // read value only
     const mlist_item_t *ptListItemDes;
     modus_base_t *ptBaseDes;
@@ -188,6 +200,8 @@ void modus_Clock(void)
         MLOG(E, "Error: ptListObject is NULL.\n");
         return;
     }
+
+    mdi_Clock();
 
     // read value only
     const mlist_item_t *ptListItemDes;

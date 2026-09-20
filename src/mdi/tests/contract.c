@@ -34,7 +34,39 @@ volatile uint32_t test_sample_ready;
 volatile uint32_t test_pwm_fault_latched;
 volatile uint32_t test_pwm_fault_source;
 volatile uint32_t test_ccr[4];
+volatile mdi_tick_t test_raw_tick_counter;
 test_timer_t test_timer;
+volatile uint32_t test_timer_frequency;
+volatile bool test_timer_running;
+volatile uint32_t test_timer_start_count;
+volatile uint32_t test_timer_stop_count;
+
+static bool test_RawTickElapsed(mdi_tick_t wLimit)
+{
+    return MDI_TICK_Elapsed(test_raw_tick, wLimit);
+}
+
+static void test_TimerAndRawTick(void)
+{
+    test_timer_frequency = 0U;
+    test_timer_running = false;
+    test_timer_start_count = 0U;
+    test_timer_stop_count = 0U;
+    assert(MDI_TIMER_SetFrequency(test_timer_resource, 0U) == MDI_RANGE);
+    assert(MDI_TIMER_SetFrequency(test_timer_resource, 1000U) == MDI_OK);
+    assert(test_timer_frequency == 1000U);
+    assert(MDI_TIMER_Start(test_timer_resource) == MDI_OK);
+    assert(MDI_TIMER_IsRunning(test_timer_resource));
+    assert(MDI_TIMER_SetFrequency(test_timer_resource, 2000U) == MDI_BUSY);
+    assert(MDI_TIMER_Stop(test_timer_resource) == MDI_OK);
+    assert(!MDI_TIMER_IsRunning(test_timer_resource));
+    assert(test_timer_start_count == 1U && test_timer_stop_count == 1U);
+
+    test_raw_tick_counter = UINT64_MAX - 2U;
+    assert(!test_RawTickElapsed(3U));
+    test_raw_tick_counter = 1U;
+    assert(test_RawTickElapsed(3U));
+}
 
 volatile uint16_t *test_adc_race_raw(void)
 {
@@ -484,6 +516,7 @@ static void test_SpiEeprom(void)
  */
 int main(void)
 {
+    test_TimerAndRawTick();
     test_Io();
     test_IoCapabilities();
     test_Sample();

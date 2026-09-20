@@ -25,6 +25,8 @@ modus/src/mdi/
 peripheral/<chip>/mdi/
 ├── backend.h             芯片寄存器操作
 ├── instance.h            引脚、通道和资源 token 的绑定
+├── state.c                DMA、Stream 等板级共享存储
+├── service.c              mdi_Service/mdi_Clock 的板级维护实现
 ├── pwm.h / i2c.h         芯片外设扩展和生命周期
 └── fault.h/.c            芯片或板级安全故障源
 ```
@@ -51,7 +53,11 @@ peripheral/<chip>/mdi/
 | ADC/DMA feature | `MDI_ADC_Read`、`MDI_ADC_SetSampleFrequency` | 应用按通道读取；DMA 发布和均值处理留在 feature/芯片适配内部，溢出恢复返回 `MDI_OVERRUN` |
 | PWM | `MDI_PWM_SetDuty`、`MDI_PWM_Stage`、`MDI_PWM_Commit` | Q16 占空比或 timer tick，显式提交生效 |
 | PWM 生命周期 | `MDI_PWM_Enable`、`MDI_PWM_SafeStop`、`MDI_PWM_ClearFault` | 输出门控、停机和故障锁存 |
+| Timer | `MDI_TIMER_SetFrequency`、`MDI_TIMER_Start/Stop`、`MDI_TIMER_IsRunning` | 可配置外设计数器；不注册回调 |
+| Raw tick | `MDI_TICK_Now`、`MDI_TICK_Elapsed` | 无单位 CPU 周期；阈值由板级主频在编译期生成 |
+| 板级维护 | `mdi_Service`、`mdi_Clock` | MODUS 调用的板级扩展点；不属于 `core/`，不传运行时对象 |
 | 总线 | `MDI_I2C_Transfer`、`MDI_SPI_Transfer` | 有界同步事务，缓冲区只在调用期间借用；`wTimeoutUs` 是每个阻塞阶段的预算 |
+| 字节流 feature | `MDI_STREAM_Write`、`MDI_STREAM_Read`、`MDI_STREAM_Available`、`MDI_STREAM_IsBusy` | 静态绑定字节流 provider；DWIN、板间链路等协议在上层 driver 实现 |
 | 设备组合 | `MDI_I2C_Reg8_Read`、`MDI_SPI_EEPROM_Read/Write` | 把寄存器命令、页边界和片选规则组合到总线事务 |
 | FOC 周期 | `MDI_FOC_RunCycle`、`MDI_FOC_RunCycleFast` | 一次完成采样读取、三相占空比提交和 Commit |
 
@@ -68,6 +74,24 @@ peripheral/<chip>/mdi/
 I2C、EEPROM 等可选能力。feature 可以通过绑定宏接受编译期参数，也可以维护自己的
 同步状态，但不能把运行时对象分派重新引入热路径，更不能改变 core 接口的含义。
 
+## 板级维护回调
+
+MODUS core 只声明并调用两个无参数边界：
+
+```c
+void mdi_Service(void);  /* modus_Run() 前台路径 */
+void mdi_Clock(void);    /* modus_Clock() 的 1 ms 路径 */
+```
+
+两个函数由目标板 `peripheral/<chip>/mdi/service.c` 提供强实现，MODUS core 保留弱空
+实现。`mdi_Service()` 是通用扩展点，当前板可以在其中组合 ADC DMA 块处理、均值更新、
+下一批采样触发、板间维护等工作；`mdi_Clock()` 只做 Stream 超时等轻量维护。公共 core
+不规定 ADC 是唯一服务，也不向回调传递 `HW`、运行时对象或函数表。
+
+`peripheral/<chip>/mdi/state.c` 只定义由 `instance.h` 静态绑定引用的共享存储，例如 DMA
+缓冲、发布序号、均值快照和 Stream 队列。它不是运行时硬件对象，也不替代 `service.c`
+的调度职责。
+
 以 ADC 为例，`core/adc.h` 只负责单值读取；`adc_dma.h` 负责完成发布和缓冲区所有权；
 `adc_mean.h` 负责批量均值。`SAMPLE_COUNT` 由芯片实例或构建配置在编译期提供，改变它
 会同时改变 DMA 布局和生成代码。不同通道重复次数或新的滤波算法应新增 feature 或采集
@@ -76,8 +100,8 @@ I2C、EEPROM 等可选能力。feature 可以通过绑定宏接受编译期参�
 `core/adc.h` 只定义最基本的单通道 ADC code 读取；ADC 扫描组、DMA 完成发布、多采样
 均值和按通道视图属于可选的 `feature/adc_dma.h`、`feature/adc_mean.h`。应用通常只看
 `MDI_ADC_Read` 和可选的 `MDI_ADC_SetSampleFrequency`，DMA flag、缓冲区所有权和均值
-过程由 feature 与芯片后端内部完成；若采样由轮询 tick 驱动，应用还需在任务上下文
-调用该芯片实例提供的服务函数完成调度和滤波发布。
+过程由 feature 与芯片后端内部完成；若采样由轮询 tick 驱动，板级 `service.c` 在
+`mdi_Service()` 中完成调度和滤波发布，应用不再直接调用 ADC service。
 
 DMA 块处理按发布序号确认：`MDI_ADC_MeanUpdate` 只确认本次处理开始时捕获的发布号，
 处理期间新完成的块会继续保持 pending。GPIO 绑定按能力生成接口；input-only 资源不

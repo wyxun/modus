@@ -34,6 +34,7 @@ extern volatile uint32_t test_sample_ready;
 extern volatile uint32_t test_pwm_fault_latched;
 extern volatile uint32_t test_pwm_fault_source;
 extern volatile uint32_t test_ccr[4];
+extern volatile mdi_tick_t test_raw_tick_counter;
 typedef struct {
     volatile uint32_t CR1;
     volatile uint32_t PSC;
@@ -42,6 +43,42 @@ typedef struct {
     volatile uint32_t BDTR;
 } test_timer_t;
 extern test_timer_t test_timer;
+extern volatile uint32_t test_timer_frequency;
+extern volatile bool test_timer_running;
+extern volatile uint32_t test_timer_start_count;
+extern volatile uint32_t test_timer_stop_count;
+
+MDI_INLINE mdi_status_t test_timer_resource_timer_SetFrequency(uint32_t wHz)
+{
+    if (wHz == 0U) { return MDI_RANGE; }
+    if (test_timer_running) { return MDI_BUSY; }
+    test_timer_frequency = wHz;
+    return MDI_OK;
+}
+
+MDI_INLINE mdi_status_t test_timer_resource_timer_Start(void)
+{
+    test_timer_running = true;
+    ++test_timer_start_count;
+    return MDI_OK;
+}
+
+MDI_INLINE mdi_status_t test_timer_resource_timer_Stop(void)
+{
+    test_timer_running = false;
+    ++test_timer_stop_count;
+    return MDI_OK;
+}
+
+MDI_INLINE bool test_timer_resource_timer_IsRunning(void)
+{
+    return test_timer_running;
+}
+
+MDI_INLINE mdi_tick_t test_raw_tick_tick_Now(void)
+{
+    return test_raw_tick_counter;
+}
 
 /* Logical bit, physical bit, logical inversion. */
 #define LED_PINS(X, V, ...) X(V, 0, 6, 1)

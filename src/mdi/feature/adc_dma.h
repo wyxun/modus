@@ -23,6 +23,15 @@
         return MDI_OK;                                                           \
     }
 
+/** Bind a provider function for a conversion start operation.  The provider
+ * owns register sequencing and may return MDI_BUSY when its DMA slot is still
+ * in use; no synthetic register flag is introduced at the binding layer. */
+#define MDI_ADC_TRIGGER_FN_BIND(NAME, START_FN)                                  \
+    MDI_INLINE mdi_status_t MDI_OP(NAME, _adc_Start)(void)                       \
+    {                                                                            \
+        return (START_FN)();                                                     \
+    }
+
 /** Bind the optional hardware trigger frequency control for one ADC group. */
 #define MDI_ADC_FREQUENCY_BIND(NAME, RATE_REG, CLOCK_HZ)                         \
     _Static_assert((CLOCK_HZ) > 0U, "ADC clock must be nonzero");                \

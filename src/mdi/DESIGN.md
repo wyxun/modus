@@ -30,7 +30,8 @@ modus/src/mdi/feature/    I2C、SPI、软件协议和设备组合能力
         │  资源 token 在编译期绑定
         ▼
 peripheral/<chip>/mdi/    芯片寄存器后端和 instance.h
-        │
+        ├── state.c        DMA/Stream 等共享存储
+        └── service.c      mdi_Service/mdi_Clock 板级维护
         ▼
 寄存器、IRQ、DMA、时钟和板级安全资源
 ```
@@ -38,6 +39,8 @@ peripheral/<chip>/mdi/    芯片寄存器后端和 instance.h
 - `core/` 不包含厂商头文件、板卡名称或外设编号。
 - `feature/` 只组合已有能力，不选择芯片，不保存运行时设备对象。
 - `peripheral/<chip>/mdi/` 负责寄存器表达式、资源映射、初始化入口和安全生命周期。
+- `peripheral/<chip>/mdi/state.c` 只提供静态绑定所引用的板级共享存储；`service.c` 实现
+  `mdi_Service()` / `mdi_Clock()`，不创建聚合 `HW` 对象。
 - `legacy/` 只用于迁移旧对象/函数指针接口，不能进入新的实时路径。
 
 芯片后端可以使用 CMSIS 或厂商库完成时钟、复位、复杂 DMA 和非实时初始化；公共 MDI
@@ -110,6 +113,27 @@ PWM 将通道帧、周期、占空比、提交和生命周期分开：
   `MDI_PWM_ClearFault` 负责输出门控与故障锁存。
 
 预装载、更新窗口、计数器启动顺序和高级定时器 MOE 由芯片后端负责，不能由公共宏猜测。
+
+### Timer 与 Raw Tick
+
+`MDI_TIMER_*` 控制可配置的外设定时器，负责频率、启动、停止和运行状态；Timer core
+不注册 ISR 回调，板级中断向量确认标志后直接进入具体 driver 的 `IsrStep()`。
+
+`MDI_TICK_Now(raw_tick)` 只读取无单位的原始 CPU 周期数。`MDI_TICK_Elapsed` 在宏展开点
+保存静态基准，适合单个固定周期任务；需要多个动态周期或显式调度状态时，feature 自己
+保存旧 tick 并进行无符号差值。毫秒、微秒阈值由板级 backend 提供的主频常量在使用模块
+中编译期生成，core 不做运行时频率查询或除法换算。
+
+### 板级 Service 与 Clock
+
+`modus_Run()` 在 MODUS 对象运行前调用一次 `mdi_Service()`，`modus_Clock()` 在对象的
+Clock 回调前调用一次 `mdi_Clock()`。两个函数是板级扩展边界，不属于 `core/` 原语，
+也不传递运行时对象或函数表。
+
+`mdi_Service()` 可以组合某个项目需要的 ADC DMA 消费、均值发布、下一批采样触发、板间
+链路维护或其他前台硬件服务；不同项目可以有不同内容。`mdi_Clock()` 只适合 O(1) 的
+计数和超时状态维护，不做协议解析、均值计算或阻塞操作。DMA/USART 中断仍只处理硬件
+标志、发布所有权或搬运字节，不能直接调用协议和应用逻辑。
 
 ### 总线和设备
 

@@ -13,6 +13,9 @@
 
 /* Public layers: core contracts first, then optional compositions. */
 #include "mdi/core/contract.h"
+#include "mdi/core/timer.h"
+#include "mdi/core/tick.h"
+#include "mdi/core/stream.h"
 #include "mdi/core/bind.h"
 #include "mdi/core/adc.h"
 #include "mdi/feature/adc_dma.h"
