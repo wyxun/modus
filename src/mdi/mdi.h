@@ -16,6 +16,7 @@
 #include "mdi/core/timer.h"
 #include "mdi/core/tick.h"
 #include "mdi/core/stream.h"
+#include "mdi/feature/uart_stream.h"
 #include "mdi/core/bind.h"
 #include "mdi/core/adc.h"
 #include "mdi/feature/adc_dma.h"

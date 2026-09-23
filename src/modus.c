@@ -17,6 +17,10 @@ __attribute__((weak)) void mstorage_SetDefaultFlash(void *ptFlash)
 
 /* Board projects override these no-op hooks from their peripheral/mdi layer.
  * Keeping the weak defaults here lets generic MODUS targets link unchanged. */
+__attribute__((weak)) void mdi_Init(void)
+{
+}
+
 __attribute__((weak)) void mdi_Service(void)
 {
 }
@@ -105,6 +109,9 @@ else {
             }
         }
     }
+
+    /* Board MDI state/configuration is ready before the first foreground run. */
+    mdi_Init();
 
     // Initialize coroutine
     mcoroutine_Init();

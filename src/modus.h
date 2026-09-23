@@ -39,8 +39,9 @@ void modus_Init(modus_t *ptModus);
 void modus_Clock(void);
 void modus_Run(void);
 
-/* Board-level MDI maintenance hooks.  The core only defines the call
- * boundary; each target may provide a strong implementation. */
+/* Board-level MDI hooks. The core only defines the call boundary; each target
+ * may provide strong implementations. */
+void mdi_Init(void);
 void mdi_Service(void);
 void mdi_Clock(void);
 

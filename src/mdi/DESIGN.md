@@ -31,7 +31,7 @@ modus/src/mdi/feature/    I2C、SPI、软件协议和设备组合能力
         ▼
 peripheral/<chip>/mdi/    芯片寄存器后端和 instance.h
         ├── state.c        DMA/Stream 等共享存储
-        └── service.c      mdi_Service/mdi_Clock 板级维护
+        └── service.c      mdi_Init/mdi_Service/mdi_Clock 板级维护
         ▼
 寄存器、IRQ、DMA、时钟和板级安全资源
 ```
@@ -40,7 +40,7 @@ peripheral/<chip>/mdi/    芯片寄存器后端和 instance.h
 - `feature/` 只组合已有能力，不选择芯片，不保存运行时设备对象。
 - `peripheral/<chip>/mdi/` 负责寄存器表达式、资源映射、初始化入口和安全生命周期。
 - `peripheral/<chip>/mdi/state.c` 只提供静态绑定所引用的板级共享存储；`service.c` 实现
-  `mdi_Service()` / `mdi_Clock()`，不创建聚合 `HW` 对象。
+  `mdi_Init()` / `mdi_Service()` / `mdi_Clock()`，不创建聚合 `HW` 对象。
 - `legacy/` 只用于迁移旧对象/函数指针接口，不能进入新的实时路径。
 
 芯片后端可以使用 CMSIS 或厂商库完成时钟、复位、复杂 DMA 和非实时初始化；公共 MDI
@@ -126,9 +126,13 @@ PWM 将通道帧、周期、占空比、提交和生命周期分开：
 
 ### 板级 Service 与 Clock
 
-`modus_Run()` 在 MODUS 对象运行前调用一次 `mdi_Service()`，`modus_Clock()` 在对象的
-Clock 回调前调用一次 `mdi_Clock()`。两个函数是板级扩展边界，不属于 `core/` 原语，
-也不传递运行时对象或函数表。
+`modus_Init()` 在 MODUS 对象初始化完成后调用一次 `mdi_Init()`；`modus_Run()` 在 MODUS
+对象运行前调用一次 `mdi_Service()`；`modus_Clock()` 在对象的 Clock 回调前调用一次
+`mdi_Clock()`。三个函数是板级扩展边界，不属于 `core/` 原语，也不传递运行时对象或函数表。
+
+`mdi_Init()` 适合队列初始化、采样频率配置和其他一次性 MDI 状态准备；`mdi_Service()`
+可以组合某个项目需要的 ADC DMA 消费、均值发布、下一批采样触发、板间链路维护或其他
+前台硬件服务；`mdi_Clock()` 只适合 O(1) 的计数和超时状态维护。
 
 `mdi_Service()` 可以组合某个项目需要的 ADC DMA 消费、均值发布、下一批采样触发、板间
 链路维护或其他前台硬件服务；不同项目可以有不同内容。`mdi_Clock()` 只适合 O(1) 的
@@ -151,8 +155,7 @@ peripheral/<chip>/mdi/
 ├── instance.h       资源 token、引脚、通道和组合关系
 ├── backend.h        GPIO/ADC/PWM/总线的寄存器 provider
 ├── i2c.h / spi.h    外设事务和错误收敛
-├── fault.h/.c       故障源、锁存和清除
-└── init.c           时钟、模式、DMA 和所有权初始化（可选）
+└── service.c         mdi_Init/mdi_Service/mdi_Clock
 ```
 
 后端必须写清楚调用上下文、缓冲区生命周期、单位、范围、超时、完成时刻和并发所有权。

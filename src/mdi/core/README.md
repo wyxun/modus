@@ -18,10 +18,11 @@
 绑定参数或芯片实例表达。这样三相 FOC、母线监测和温度采样可以共享同一套基础契约，
 又不会把某一种采样流程固化成所有芯片都必须实现的公共接口。
 
-板级维护回调 `mdi_Service()` 和 `mdi_Clock()` 也不属于 `core/`。它们由 MODUS 根接口
-声明并由各板 `peripheral/<chip>/mdi/service.c` 实现：前者承载项目需要的前台硬件服务，
-后者承载 1 ms 级轻量维护。DMA/Stream 的共享缓冲和序号由同目录 `state.c` 定义，
-不能把这些板级状态偷偷变成 core 的运行时对象。
+板级维护回调 `mdi_Init()`、`mdi_Service()` 和 `mdi_Clock()` 也不属于 `core/`。它们由
+MODUS 根接口声明并由各板 `peripheral/<chip>/mdi/service.c` 实现：`mdi_Init()` 承载一次性
+状态准备，`mdi_Service()` 承载项目需要的前台硬件服务，`mdi_Clock()` 承载 1 ms 级轻量
+维护。DMA/Stream 的共享缓冲和序号由同目录 `state.c` 定义，不能把这些板级状态偷偷变成
+core 的运行时对象。
 
 绑定宏生成的是类型和直接操作，不是描述符数组。资源 token 是预处理 token，例如
 `bridge` 会展开成 `bridge_pwm_Stage()`；它不是运行时索引。

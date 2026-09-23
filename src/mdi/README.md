@@ -26,9 +26,8 @@ peripheral/<chip>/mdi/
 ├── backend.h             芯片寄存器操作
 ├── instance.h            引脚、通道和资源 token 的绑定
 ├── state.c                DMA、Stream 等板级共享存储
-├── service.c              mdi_Service/mdi_Clock 的板级维护实现
-├── pwm.h / i2c.h         芯片外设扩展和生命周期
-└── fault.h/.c            芯片或板级安全故障源
+├── service.c              mdi_Init/mdi_Service/mdi_Clock 的板级维护实现
+└── pwm.h / i2c.h         芯片外设扩展和生命周期
 ```
 
 职责边界是静态源码边界，不是运行时调用层。应用通常包含：
@@ -55,7 +54,7 @@ peripheral/<chip>/mdi/
 | PWM 生命周期 | `MDI_PWM_Enable`、`MDI_PWM_SafeStop`、`MDI_PWM_ClearFault` | 输出门控、停机和故障锁存 |
 | Timer | `MDI_TIMER_SetFrequency`、`MDI_TIMER_Start/Stop`、`MDI_TIMER_IsRunning` | 可配置外设计数器；不注册回调 |
 | Raw tick | `MDI_TICK_Now`、`MDI_TICK_Elapsed` | 无单位 CPU 周期；阈值由板级主频在编译期生成 |
-| 板级维护 | `mdi_Service`、`mdi_Clock` | MODUS 调用的板级扩展点；不属于 `core/`，不传运行时对象 |
+| 板级维护 | `mdi_Init`、`mdi_Service`、`mdi_Clock` | MODUS 调用的板级扩展点；不属于 `core/`，不传运行时对象 |
 | 总线 | `MDI_I2C_Transfer`、`MDI_SPI_Transfer` | 有界同步事务，缓冲区只在调用期间借用；`wTimeoutUs` 是每个阻塞阶段的预算 |
 | 字节流 feature | `MDI_STREAM_Write`、`MDI_STREAM_Read`、`MDI_STREAM_Available`、`MDI_STREAM_IsBusy` | 静态绑定字节流 provider；DWIN、板间链路等协议在上层 driver 实现 |
 | 设备组合 | `MDI_I2C_Reg8_Read`、`MDI_SPI_EEPROM_Read/Write` | 把寄存器命令、页边界和片选规则组合到总线事务 |
@@ -63,6 +62,23 @@ peripheral/<chip>/mdi/
 
 接口按能力增加，而不是把所有设备塞进一个“大 MDI 对象”。没有能力的资源不会得到
 成功 stub；错误在编译期或明确的 `mdi_status_t` 返回值中暴露。
+
+### UART stream 的调用形态
+
+芯片后端只提供寄存器原语，实例把某个 UART 套入公共 feature；应用只使用资源 token：
+
+```c
+const uint8_t achTx[] = {0x01U, 0x02U};
+uint8_t achRx[16];
+int32_t nWritten = MDI_STREAM_Write(board_stream, achTx, sizeof(achTx));
+int32_t nRead = MDI_STREAM_Read(board_stream, achRx, sizeof(achRx));
+bool bBusy = MDI_STREAM_IsBusy(board_stream);
+uint32_t wAvailable = MDI_STREAM_Available(board_stream);
+```
+
+`MDI_STREAM_Write` 只把数据放入 TX 队列并由 UART IRQ 逐字节发送；RX IRQ 把字节放入
+RX 队列，`mdi_Clock()` 推进 1 ms 空闲保护，保护结束后 `MDI_STREAM_Read` 才返回当前帧。
+不同 UART 只需各自声明状态、缓冲区和 `MDI_UART_STREAM_BIND`，不重复实现读写逻辑。
 
 ## Core 与 feature 的扩展规则
 
@@ -76,17 +92,19 @@ I2C、EEPROM 等可选能力。feature 可以通过绑定宏接受编译期参�
 
 ## 板级维护回调
 
-MODUS core 只声明并调用两个无参数边界：
+MODUS core 只声明并调用三个无参数边界：
 
 ```c
+void mdi_Init(void);       /* modus_Init() 完成对象初始化后调用一次 */
 void mdi_Service(void);  /* modus_Run() 前台路径 */
 void mdi_Clock(void);    /* modus_Clock() 的 1 ms 路径 */
 ```
 
-两个函数由目标板 `peripheral/<chip>/mdi/service.c` 提供强实现，MODUS core 保留弱空
-实现。`mdi_Service()` 是通用扩展点，当前板可以在其中组合 ADC DMA 块处理、均值更新、
-下一批采样触发、板间维护等工作；`mdi_Clock()` 只做 Stream 超时等轻量维护。公共 core
-不规定 ADC 是唯一服务，也不向回调传递 `HW`、运行时对象或函数表。
+三个函数由目标板 `peripheral/<chip>/mdi/service.c` 提供强实现，MODUS core 保留弱空
+实现。`mdi_Init()` 只做一次性的 MDI 状态和配置初始化；`mdi_Service()` 是通用扩展点，
+当前板可以在其中组合 ADC DMA 块处理、均值更新、下一批采样触发、板间维护等工作；
+`mdi_Clock()` 只做 Stream 超时等轻量维护。公共 core 不规定 ADC 是唯一服务，也不向回调
+传递 `HW`、运行时对象或函数表。
 
 `peripheral/<chip>/mdi/state.c` 只定义由 `instance.h` 静态绑定引用的共享存储，例如 DMA
 缓冲、发布序号、均值快照和 Stream 队列。它不是运行时硬件对象，也不替代 `service.c`
