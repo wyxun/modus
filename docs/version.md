@@ -2,7 +2,7 @@
 
 | 版本 | 日期 | 状态 | 核心变更 |
 | :--- | :--- | :--- | :--- |
-| **v0.6.1.2** | 2026-09-20 | 未测试 | 板级 MDI 服务收敛：新增 `mdi_Service()` / `mdi_Clock()` 回调边界，迁移 ADC/DMA 与 Stream 维护，补充 Timer、Raw Tick 和静态资源绑定文档 |
+| **v0.6.1.2** | 2026-09-26 | 稳定 | 板级 MDI 服务收敛：新增 `mdi_Init()` / `mdi_Service()` / `mdi_Clock()` 回调边界，迁移 ADC/DMA 与 Stream 维护，补充 Timer、Raw Tick 和静态资源绑定文档 |
 | **v0.6.1.1** | 2026-09-19 | 稳定 | MDI 契约修复：DMA 溢出恢复与序号确认、GPIO 单向能力约束、I2C 分阶段微秒超时校准；补充回归测试和 `MDI_ENOTSUP`/`MDI_OVERRUN` 状态说明 |
 | **v0.6.1.0** | 2026-09-19 | 稳定 | 重构 MDI 为 core/feature 分层的编译期硬件抽象；补充 ADC/DMA 采集组、通道视图、批量均值与模板多外设实例；完善 MDI 设计规范和应用接入文档 |
 | **v0.6.0.0** | 2026-09-17 | 稳定 | MDI 编译期能力接口落地；移除 waveform snapshot 与旧软定时器；完善 MStorage 错误处理 |

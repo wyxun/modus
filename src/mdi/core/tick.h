@@ -22,12 +22,12 @@ typedef uint64_t mdi_tick_t;
     __extension__ ({                                                           \
         static mdi_tick_t s_wOld;                                             \
         static bool s_bStarted;                                               \
-        mdi_tick_t wNow = MDI_TICK_Now(R);                                     \
-        mdi_tick_t wLimit = (mdi_tick_t)(LIMIT);                               \
+        mdi_tick_t wTickNow = MDI_TICK_Now(R);                                 \
+        mdi_tick_t wTickLimit = (mdi_tick_t)(LIMIT);                            \
         bool bElapsed = s_bStarted                                             \
-                     && ((mdi_tick_t)(wNow - s_wOld) >= wLimit);              \
+                     && ((mdi_tick_t)(wTickNow - s_wOld) >= wTickLimit);       \
         if (!s_bStarted || bElapsed) {                                         \
-            s_wOld = wNow;                                                     \
+            s_wOld = wTickNow;                                                 \
             s_bStarted = true;                                                 \
         }                                                                      \
         bElapsed;                                                              \
