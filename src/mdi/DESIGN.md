@@ -37,8 +37,9 @@ peripheral/<chip>/mdi/    芯片寄存器后端和 instance.h
 ```
 
 - `core/` 不包含厂商头文件、板卡名称或外设编号。
-- `feature/` 只组合已有能力，不选择芯片，不保存运行时设备对象。
-- `peripheral/<chip>/mdi/` 负责寄存器表达式、资源映射、初始化入口和安全生命周期。
+- `mdi.h` 默认仅包含 core；使用 feature 的实例或模块显式包含对应头。
+- `feature/` 组合已有能力，不选择芯片；队列、均值和协议有明确的软件状态与执行上下文。
+- `peripheral/<chip>/mdi/` 负责运行时寄存器表达式、资源映射和安全生命周期；外设初始化在板级启动中完成。
 - `peripheral/<chip>/mdi/state.c` 只提供静态绑定所引用的板级共享存储；`service.c` 实现
   `mdi_Init()` / `mdi_Service()` / `mdi_Clock()`，不创建聚合 `HW` 对象。
 - `legacy/` 只用于迁移旧对象/函数指针接口，不能进入新的实时路径。
@@ -108,27 +109,31 @@ PWM 将通道帧、周期、占空比、提交和生命周期分开：
 
 - `MDI_PWM_SetDuty` 接收有单位的 Q16 duty 帧并执行检查；
 - `MDI_PWM_StageFast` 接收调用者已经验证的 timer tick 帧；
-- `MDI_PWM_Commit` 请求硬件更新事件；
+- `MDI_PWM_StageCycle/Commit` 是显式选用的预装载更新能力，不能无条件生成；
 - `MDI_PWM_Enable`、`MDI_PWM_SafeStop`、`MDI_PWM_FaultActive` 和
   `MDI_PWM_ClearFault` 负责输出门控与故障锁存。
 
 预装载、更新窗口、计数器启动顺序和高级定时器 MOE 由芯片后端负责，不能由公共宏猜测。
+`SetDuty` 和 `Stage/StageFast` 写 CCR，实际生效时刻取决于资源配置。G431 bridge 关闭 preload，直接更新 CCR 且无 Commit；SafeStop 关闭 CH1–3 E/NE，保留已有 CH4/CEN/MOE，不主动打开 MOE 或清除 Break。ClearFault 仅在相位输出关闭且物理源消失时确认目标 Break 位，保留其他状态且不重新开启输出。
 
 ### Timer 与 Raw Tick
 
 `MDI_TIMER_*` 控制可配置的外设定时器，负责频率、启动、停止和运行状态；Timer core
 不注册 ISR 回调，板级中断向量确认标志后直接进入具体 driver 的 `IsrStep()`。
 
-`MDI_TICK_Now(raw_tick)` 只读取无单位的原始 CPU 周期数。`MDI_TICK_Elapsed` 在宏展开点
-保存静态基准，适合单个固定周期任务；需要多个动态周期或显式调度状态时，feature 自己
-保存旧 tick 并进行无符号差值。毫秒、微秒阈值由板级 backend 提供的主频常量在使用模块
-中编译期生成，core 不做运行时频率查询或除法换算。
+`MDI_TICK_Now(raw_tick)` 只读取无单位原始计数，不拥有隐藏基准。调用者保存旧 tick，以 `mdi_tick_t` 的无符号差值处理回绕；微秒、毫秒超时使用已有 perfc 与显式的调用者状态槽。core 不管理周期或进行时间单位换算。
 
 ### 板级 Service 与 Clock
 
-`modus_Init()` 在 MODUS 对象初始化完成后调用一次 `mdi_Init()`；`modus_Run()` 在 MODUS
+`modus_Init()` 校验参数后、首次正常日志和 MODUS 对象初始化前调用一次 `mdi_Init()`；`modus_Run()` 在 MODUS
 对象运行前调用一次 `mdi_Service()`；`modus_Clock()` 在对象的 Clock 回调前调用一次
 `mdi_Clock()`。三个函数是板级扩展边界，不属于 `core/` 原语，也不传递运行时对象或函数表。
+
+初始化无需经过 MDI；`mdi_Init` 是现有板级装配 hook，仅准备队列和服务状态，并在资源准备成功后启用 IRQ。运行时 provider 不做惰性初始化。硬件启动和完成确认直接访问寄存器，不增加只负责转发的 HAL 调用。
+
+当前 G431/模板的软件采样调频由现有 service 的 `mdi_service_SetAdcFrequency` 承担；周期、perfc 截止时间和首次启动状态由板级服务对象拥有。setter 有效时从调用时刻重新计时，失败保留旧设置；DMA 忙保留到期请求，成功后重新计时，不追赶积压。均值绑定只处理并发布数据，不声称控制硬件频率。硬件触发频率能力按资源独立生成。
+
+Stream Read/Write 返回 `mdi_status_t`，实际数量经输出参数返回。读写非阻塞，Read 立即消费队列字节；分帧归上层协议。零长度、短传输和空队列返回 OK/实际数量；溢出返回 OVERRUN 并保留已读数据。IsBusy 包含排队和最后一字节物理发送；初始化失败不能返回假成功。
 
 `mdi_Init()` 适合队列初始化、采样频率配置和其他一次性 MDI 状态准备；`mdi_Service()`
 可以组合某个项目需要的 ADC DMA 消费、均值发布、下一批采样触发、板间链路维护或其他

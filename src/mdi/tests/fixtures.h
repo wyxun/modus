@@ -7,6 +7,12 @@
 #ifndef MDI_CORE_TEST_FIXTURES_H
 #define MDI_CORE_TEST_FIXTURES_H
 #include "mdi/mdi.h"
+#include "mdi/feature/adc_mean.h"
+#include "mdi/feature/foc.h"
+#include "mdi/feature/i2c_reg8.h"
+#include "mdi/feature/soft_i2c_edges.h"
+#include "mdi/feature/soft_i2c_master.h"
+#include "mdi/feature/spi_eeprom_25xx.h"
 #include "mdi/backend.h"
 #include "mdi/pwm.h"
 
@@ -27,7 +33,6 @@ extern volatile bool test_adc_inject_publish;
 extern volatile uint32_t test_adc_race_mean[3];
 extern volatile uint32_t test_adc_race_mean_seq;
 extern volatile bool test_adc_race_mean_valid;
-extern volatile uint32_t test_adc_race_rate;
 extern volatile uint16_t *test_adc_race_raw(void);
 extern volatile uint32_t test_sample_seq;
 extern volatile uint32_t test_sample_ready;
@@ -201,8 +206,7 @@ MDI_ADC_MEAN_BIND(test_adc_mean_filter, 4U, 3U, ADC_MEAN_CHANNELS,
     X(__VA_ARGS__, w, 2)
 MDI_ADC_MEAN_GROUP_BIND(test_adc_race_mean, test_adc_dma, test_adc_race_raw(),
                         4U, 3U, RACE_ADC_RAW_CHANNELS, test_adc_race_mean,
-                        test_adc_race_mean_seq, test_adc_race_mean_valid,
-                        test_adc_race_rate, 1000000U)
+                        test_adc_race_mean_seq, test_adc_race_mean_valid)
 MDI_ADC_CHANNEL_SEQ_BIND(mean_u, test_adc_mean[0], 0xFFFFU, 0,
                          test_adc_mean_seq)
 MDI_ADC_CHANNEL_SEQ_BIND(mean_v, test_adc_mean[1], 0xFFFFU, 0,
@@ -226,6 +230,7 @@ MDI_PWM_REG_BIND(buzzer, BUZZER_CHANNELS)
 MDI_PWM_REG_BIND(variable, VARIABLE_CHANNELS)
 MDI_STM32_PWM_TIMING_BIND(variable, &test_timer, 170000000U, 2U,                 \
                           VARIABLE_CHANNELS)
+MDI_STM32_PWM_CYCLE_BIND(variable, &test_timer, 2U, VARIABLE_CHANNELS)
 MDI_STM32_PWM_LIFECYCLE_FAULT_BIND(
     variable, &test_timer, test_timer.BDTR, 0x8000U,
     test_pwm_fault_latched != 0U, test_pwm_fault_source != 0U,

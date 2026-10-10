@@ -68,11 +68,9 @@
  * operation is called by a channel read or a control task, never by the DMA
  * interrupt. VALID is a producer-owned flag for the first completed result.
  */
-#define MDI_ADC_MEAN_GROUP_BIND(NAME, DMA, RAW, SAMPLE_COUNT, CHANNEL_COUNT,     \
-                                CHANNELS, OUTPUT, SEQ, VALID, RATE_REG,          \
-                                CLOCK_HZ)                                        \
+#define MDI_ADC_MEAN_GROUP_BIND(NAME, DMA, RAW, SAMPLE_COUNT, CHANNEL_COUNT,    \
+                                CHANNELS, OUTPUT, SEQ, VALID)                   \
     MDI_ADC_MEAN_BIND(NAME, SAMPLE_COUNT, CHANNEL_COUNT, CHANNELS, OUTPUT, SEQ)  \
-    MDI_ADC_FREQUENCY_BIND(NAME, RATE_REG, CLOCK_HZ)                             \
     MDI_INLINE mdi_status_t MDI_OP(NAME, _adc_mean_Update)(void)                 \
     {                                                                            \
         uint32_t wIndex;                                                         \

@@ -6,24 +6,13 @@
  */
 #include "mdi/instance.h"
 
-/** @brief Drive one logical pin and a vector through the same IO interface.
- * @param wCode Right-aligned parallel output value.
+/** @brief Drive the board's logical status indicator.
+ * @param bOn True lights the indicator.
  * @return None.
  */
-void example_WriteOutputs(uint32_t wCode)
+void example_WriteOutputs(bool bOn)
 {
-    MDI_IO_Write(status_led, 1U);
-    MDI_IO_Write(dac_data, wCode);
-}
-
-/** @brief Read a completed acquisition through a typed group interface.
- * @param ptCurrent Caller-owned stable output frame.
- * @return None.
- * @note Invoke only after all channels complete, before next overwrite.
- */
-void example_ReadCurrent(MDI_Sample_Frame(phase_current) *ptCurrent)
-{
-    MDI_Sample_Read(phase_current, ptCurrent);
+    MDI_IO_Write(status_led, bOn ? 1U : 0U);
 }
 
 /** @brief Consume one injected ADC frame only after JEOS publication.
@@ -45,7 +34,12 @@ mdi_status_t example_FocCycle(
     MDI_Sample_Frame(phase_current_completed) *ptCurrent,
     const MDI_PWM_DutyFrame(bridge) *ptDuty)
 {
-    return MDI_FOC_RunCycle(g431_foc_cycle, ptCurrent, ptDuty);
+    mdi_status_t eStatus = MDI_Sample_ReadCompleted(
+        phase_current_completed, ptCurrent);
+    if (eStatus != MDI_OK) {
+        return eStatus;
+    }
+    return MDI_PWM_SetDuty(bridge, ptDuty);
 }
 
 /** @brief Change a stopped, output-gated buzzer's frequency and duty.

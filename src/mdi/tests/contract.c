@@ -28,7 +28,6 @@ volatile bool test_adc_inject_publish;
 volatile uint32_t test_adc_race_mean[3];
 volatile uint32_t test_adc_race_mean_seq;
 volatile bool test_adc_race_mean_valid;
-volatile uint32_t test_adc_race_rate;
 volatile uint32_t test_sample_seq;
 volatile uint32_t test_sample_ready;
 volatile uint32_t test_pwm_fault_latched;
@@ -41,13 +40,23 @@ volatile bool test_timer_running;
 volatile uint32_t test_timer_start_count;
 volatile uint32_t test_timer_stop_count;
 
-static bool test_RawTickElapsed(mdi_tick_t wLimit)
+/** @brief Check a caller-owned raw tick interval, including wraparound.
+ * @param wBaseline Caller-owned start tick.
+ * @param wLimit Required interval in raw ticks.
+ * @return True once the requested interval has elapsed.
+ */
+static bool test_RawTickElapsed(mdi_tick_t wBaseline, mdi_tick_t wLimit)
 {
-    return MDI_TICK_Elapsed(test_raw_tick, wLimit);
+    return (mdi_tick_t)(MDI_TICK_Now(test_raw_tick) - wBaseline) >= wLimit;
 }
 
+/** @brief Check independent timer control and caller-owned raw tick state.
+ * @return None.
+ */
 static void test_TimerAndRawTick(void)
 {
+    mdi_tick_t wFirst = 0U;
+    mdi_tick_t wSecond = 0U;
     test_timer_frequency = 0U;
     test_timer_running = false;
     test_timer_start_count = 0U;
@@ -63,9 +72,16 @@ static void test_TimerAndRawTick(void)
     assert(test_timer_start_count == 1U && test_timer_stop_count == 1U);
 
     test_raw_tick_counter = UINT64_MAX - 2U;
-    assert(!test_RawTickElapsed(3U));
+    wFirst = MDI_TICK_Now(test_raw_tick);
+    test_raw_tick_counter = UINT64_MAX;
+    wSecond = MDI_TICK_Now(test_raw_tick);
+    assert(!test_RawTickElapsed(wFirst, 3U));
+    assert(!test_RawTickElapsed(wSecond, 3U));
     test_raw_tick_counter = 1U;
-    assert(test_RawTickElapsed(3U));
+    assert(test_RawTickElapsed(wFirst, 3U));
+    assert(!test_RawTickElapsed(wSecond, 3U));
+    test_raw_tick_counter = 2U;
+    assert(test_RawTickElapsed(wSecond, 3U));
 }
 
 volatile uint16_t *test_adc_race_raw(void)

@@ -76,6 +76,9 @@ void modus_Init(modus_t *ptModus)
         return;
     }
 
+    /* Board state is ready before logging and business object Init. */
+    mdi_Init();
+
     MLOG(I, "MODUS VERSION :");
     MLOG(I, (uint8_t *)&MODUSVersion, 4);
     MLOG(I, "\n");
@@ -109,9 +112,6 @@ else {
             }
         }
     }
-
-    /* Board MDI state/configuration is ready before the first foreground run. */
-    mdi_Init();
 
     // Initialize coroutine
     mcoroutine_Init();

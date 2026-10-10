@@ -18,7 +18,7 @@ feature 只消费芯片实例提供的资源。例如
 `MDI_I2C_REG8_BIND(encoder_angle, encoder_i2c, 0x36U)` 固定设备地址和寄存器命令，
 但真正的 I2C 时序、GPIO 和总线所有权仍由 `peripheral/<chip>/mdi/` 提供。
 
-应用只应包含 `mdi/mdi.h`，除非需要单独审查某个 feature 的编译依赖。新增 feature 时，
+`mdi/mdi.h` 默认只包含 core，使用 feature 的实例或模块显式包含对应头。新增 feature 时，
 优先组合现有能力；只有当协议边界、缓冲区生命周期或实时性承诺确实不同，才新增公共
 契约。
 
@@ -32,8 +32,7 @@ feature 只消费芯片实例提供的资源。例如
 MDI_ADC_MEAN_GROUP_BIND(
     adc_mean, adc_dma, g_awRaw,
     APP_ADC_SAMPLE_COUNT, APP_ADC_CHANNEL_COUNT, APP_ADC_CHANNELS,
-    g_awMean, g_wMeanSequence, g_bMeanValid,
-    ADC1->RATE_HZ, 80000000U)
+    g_awMean, g_wMeanSequence, g_bMeanValid)
 ```
 
 它表示同一采集组中每个通道的重复次数，同时决定 DMA 缓冲区布局和均值循环次数。它
@@ -45,3 +44,5 @@ MDI_ADC_MEAN_GROUP_BIND(
 快照契约，分别提供新的 feature 绑定；DMA ISR 仍只发布完成状态，算法在板级
 `mdi_Service()` 或其他明确的前台服务上下文执行。这样扩展算法不会增加 core 的公共
 接口，也不会改变普通 ADC 读取和三相帧读取的语义。
+
+mean 绑定不包含调频。软件调度归现有板级 service，真实硬件触发频率由独立硬件 provider 提供。UART stream feature 显式依赖 mringbuf，立即读取字节，协议分帧由上层完成。

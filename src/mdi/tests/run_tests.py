@@ -44,27 +44,85 @@ def instructions(disassembly):
         elif current:
             match = re.match(r"\s*[0-9a-f]+:\s+(.+)", line)
             if match:
-                bodies[current].append(" ".join(match.group(1).split()))
+                instruction = " ".join(match.group(1).split())
+                instruction = re.sub(r"<\w+([+-][^>]*)?>", r"<local\1>",
+                                     instruction)
+                bodies[current].append(instruction)
     return bodies
 
 
 def main():
-    host = tool("HOST_CC", "gcc", "D:/software/msys64/mingw64/bin/gcc.exe")
-    arm = tool("ARM_CC", "clang", "D:/software/llvm_for_arm/bin/clang.exe")
+    host = tool("HOST_CC", "gcc", "D:/0_software/msys64/mingw64/bin/gcc.exe")
+    arm = tool("ARM_CC", "clang", "D:/0_software/llvm_for_arm/bin/clang.exe")
     dump = tool("ARM_OBJDUMP", "llvm-objdump",
-                "D:/software/llvm_for_arm/bin/llvm-objdump.exe")
+                "D:/0_software/llvm_for_arm/bin/llvm-objdump.exe")
+    os.environ["PATH"] = os.pathsep.join(
+        [str(Path(exe).resolve().parent) for exe in (host, arm, dump)]
+        + [os.environ.get("PATH", "")])
     common = ["-std=c11", "-Wall", "-Wextra", "-Werror",
               "-Wno-int-to-pointer-cast",
               f"-I{MDI}", f"-I{HERE}", f"-I{ROOT / 'modus/src'}",
+              f"-I{ROOT / 'modus/src/utilities'}",
               f"-I{ROOT / 'peripheral/stm32g431'}",
               f"-I{ROOT / 'vendor/cortex-m/cmsis_device_g4/Include'}",
               f"-I{ROOT / 'vendor/cortex-m/cmsis_core'}"]
-    with tempfile.TemporaryDirectory(prefix="mdi_") as temp:
+    build = ROOT / "build"
+    build.mkdir(exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix="mdi_", dir=build) as temp:
         work = Path(temp)
+        public = work / "public_header.c"
+        public.write_text('#include "mdi/mdi.h"\n', encoding="utf-8")
+        public_flags = ["-std=c11", "-Wall", "-Wextra", "-Werror",
+                        f"-I{ROOT / 'modus/src'}"]
+        run([host, *public_flags, "-fsyntax-only", public])
+        dependencies = run([host, *public_flags, "-M", public])
+        assert "mdi/feature/" not in dependencies.replace("\\", "/")
+        print("PASS standalone public header: core only")
+
         exe = work / ("contract.exe" if os.name == "nt" else "contract")
         run([host, *common, HERE / "contract.c", "-o", exe])
         run([exe])
         print("PASS host IO/masked-IO/sample/PWM/frequency/soft-I2C/SPI-EEPROM contracts")
+
+        exe = work / ("g431_pwm.exe" if os.name == "nt" else "g431_pwm")
+        run([host, *common,
+             ROOT / "peripheral/stm32g431/mdi/tests/pwm_runtime.c", "-o", exe])
+        run([exe])
+        print("PASS G431 PWM lifecycle and fault register contracts")
+
+        template = ROOT / "peripheral/template"
+        perfc_flags = ["-std=gnu11",
+                          f"-I{ROOT / 'modus/lib/perf_counter'}",
+                          f"-I{ROOT / 'modus/src/arch'}",
+                          "-D__PERFC_USE_USER_CUSTOM_PORTING__=1",
+                          '-D__PERFC_CFG_PORTING_INCLUDE__="perfc_port.h"',
+                          "-D__COMPILER_HAS_GNU_EXTENSIONS__=1"]
+        template_flags = [f"-I{template}", *common, *perfc_flags]
+        run([host, *template_flags, "-fsyntax-only",
+             template / "tests/contract.c"])
+        for name in ("runtime", "service_runtime"):
+            exe = work / (name + (".exe" if os.name == "nt" else ""))
+            run([host, *template_flags, template / f"tests/{name}.c",
+                 ROOT / "modus/src/utilities/mringbuf.c", "-o", exe])
+            run([exe])
+            print(f"PASS template {name}")
+
+        exe = work / ("g431_adc.exe" if os.name == "nt" else "g431_adc")
+        run([host, *common, *perfc_flags,
+             ROOT / "peripheral/stm32g431/mdi/tests/adc_runtime.c",
+             ROOT / "modus/src/utilities/mringbuf.c", "-o", exe])
+        run([exe])
+        print("PASS G431 regular DMA busy, publication and transfer error")
+
+        source = (ROOT / "modus/src/modus.c").read_text(encoding="utf-8")
+        start = source.index("void modus_Init(")
+        end = source.index("\n/**", start)
+        (work / "modus_init_under_test.h").write_text(source[start:end],
+                                                     encoding="utf-8")
+        exe = work / ("startup.exe" if os.name == "nt" else "startup")
+        run([host, *common, f"-I{work}", HERE / "startup.c", "-o", exe])
+        run([exe])
+        print("PASS actual modus_Init: board ready before logs/business Init")
 
         negatives = {
             "wrong_sample_type": 'MDI_PWM_Frame(bridge) x = {0}; '
@@ -74,6 +132,8 @@ def main():
             "wrong_duty_units": 'MDI_PWM_Frame(variable) x = {0}; '
                                 '(void)MDI_PWM_SetDuty(variable, &x);',
             "unsupported_capability": '(void)MDI_PWM_SetFrequency(led, 100U);',
+            "unsupported_mean_frequency":
+                '(void)MDI_ADC_SetSampleFrequency(test_adc_race_mean, 100U);',
             "input_only_write": '(void)MDI_IO_Write(input_only, 1U);',
             "output_only_read": '(void)MDI_IO_Read(output_only);',
         }
@@ -87,6 +147,14 @@ def main():
                 else "incompatible pointer"
             assert expected in output.lower(), output
             print(f"PASS rejects {name}")
+
+        source = work / "g431_commit.c"
+        source.write_text('#include "mdi/instance.h"\n'
+                          'void misuse(void) {(void)MDI_PWM_Commit(bridge);}\n',
+                          encoding="utf-8")
+        output = run([host, *common, "-fsyntax-only", source], False)
+        assert "implicit declaration" in output.lower(), output
+        print("PASS rejects G431 bridge explicit Commit")
 
         maps = {
             "duplicate_logical": "X(V,0,1,0) X(V,0,2,0)",
@@ -128,11 +196,14 @@ def main():
                      f"-I{ROOT / 'vendor/cortex-m/cmsis_core'}",
                      f"-I{ROOT / 'vendor/cortex-m/cmsis_device_g4/Include'}"]
         for opt in ("-O2", "-Os"):
-            obj = work / f"probe{opt}.o"
-            run([arm, *common, *arm_flags, opt, "-c", HERE / "codegen.c",
-                 "-o", obj])
-            asm = run([dump, "-d", "--no-show-raw-insn", obj])
-            bodies = instructions(asm)
+            bodies = {}
+            for mode, flags in (("g431", []),
+                                ("fixtures", ["-DMDI_CODEGEN_FIXTURES=1"])):
+                obj = work / f"probe_{mode}{opt}.o"
+                run([arm, *common, *arm_flags, *flags, opt, "-c",
+                     HERE / "codegen.c", "-o", obj])
+                asm = run([dump, "-d", "--no-show-raw-insn", obj])
+                bodies.update(instructions(asm))
             for name in ("led", "input", "bus", "bus_masked", "sample", "pwm", "edge"):
                 direct, abstract = bodies[f"raw_{name}"], bodies[f"mdi_{name}"]
                 assert direct and abstract
@@ -155,6 +226,11 @@ def main():
                     match = "identical instructions"
                 assert not any(re.match(r"bl(x)?\s", x) for x in abstract)
                 print(f"PASS {opt} {name}: {len(direct)}, {match}")
+            for name in ("adc_start", "safe_stop", "fault_active", "fault_clear"):
+                body = bodies[f"mdi_{name}"]
+                assert body and not any(re.match(r"bl(x)?\s", x) for x in body), \
+                    f"{opt}/{name} contains a forwarding call: {body}"
+                print(f"PASS {opt} G431 {name}: no forwarding call")
             run([arm, *common, *arm_flags, opt, "-fsyntax-only",
                  MDI / "examples/application.c"])
         print("PASS Cortex-M4 application example, no LTO")

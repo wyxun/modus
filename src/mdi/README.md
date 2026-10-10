@@ -37,7 +37,7 @@ peripheral/<chip>/mdi/
 #include "mdi/instance.h"       /* 由芯片工程提供 */
 ```
 
-`mdi/mdi.h` 只汇总公共契约和可选 feature；它不会选择 STM32、GD32 或某一块板卡。
+`mdi/mdi.h` 只汇总 core 契约；可选 feature 由使用它的实例或模块显式包含。它不会选择 STM32、GD32 或某一块板卡。
 芯片的 `instance.h` 才选择具体资源。这样同一个应用调用可以换芯片绑定，而不用改成
 厂商 HAL API。
 
@@ -49,11 +49,12 @@ peripheral/<chip>/mdi/
 | IO 能力 | `MDI_IO_Width`、`MDI_IO_Capabilities` | 编译期宽度、输入/输出/开漏约束 |
 | ADC/采样 | `MDI_Sample_Frame`、`MDI_Sample_Read` | 一次读取已经完成的整帧，不启动转换 |
 | 稳定帧 | `MDI_Sample_ReadStable`、`MDI_Sample_ReadCompleted` | 序列号或硬件完成标志保护生产者所有权 |
-| ADC/DMA feature | `MDI_ADC_Read`、`MDI_ADC_SetSampleFrequency` | 应用按通道读取；DMA 发布和均值处理留在 feature/芯片适配内部，溢出恢复返回 `MDI_OVERRUN` |
-| PWM | `MDI_PWM_SetDuty`、`MDI_PWM_Stage`、`MDI_PWM_Commit` | Q16 占空比或 timer tick，显式提交生效 |
+| ADC/DMA feature | `MDI_ADC_Read`、`MDI_ADC_Start` | 读取已发布快照；启动转换是独立操作；均值由前台显式处理 |
+| PWM | `MDI_PWM_SetDuty`、`MDI_PWM_Stage/StageFast` | Q16 占空比或 timer tick；生效时刻由资源的 preload 配置决定 |
+| PWM 更新 | 可选 `MDI_PWM_StageCycle/Commit` | 仅对明确支持预装载提交的资源生成；G431 bridge 不提供 Commit |
 | PWM 生命周期 | `MDI_PWM_Enable`、`MDI_PWM_SafeStop`、`MDI_PWM_ClearFault` | 输出门控、停机和故障锁存 |
 | Timer | `MDI_TIMER_SetFrequency`、`MDI_TIMER_Start/Stop`、`MDI_TIMER_IsRunning` | 可配置外设计数器；不注册回调 |
-| Raw tick | `MDI_TICK_Now`、`MDI_TICK_Elapsed` | 无单位 CPU 周期；阈值由板级主频在编译期生成 |
+| Raw tick | `MDI_TICK_Now` | 无单位原始计数；基准由调用者拥有，超时使用 perfc 显式槽 |
 | 板级维护 | `mdi_Init`、`mdi_Service`、`mdi_Clock` | MODUS 调用的板级扩展点；不属于 `core/`，不传运行时对象 |
 | 总线 | `MDI_I2C_Transfer`、`MDI_SPI_Transfer` | 有界同步事务，缓冲区只在调用期间借用；`wTimeoutUs` 是每个阻塞阶段的预算 |
 | 字节流 feature | `MDI_STREAM_Write`、`MDI_STREAM_Read`、`MDI_STREAM_Available`、`MDI_STREAM_IsBusy` | 静态绑定字节流 provider；DWIN、板间链路等协议在上层 driver 实现 |
@@ -70,14 +71,19 @@ peripheral/<chip>/mdi/
 ```c
 const uint8_t achTx[] = {0x01U, 0x02U};
 uint8_t achRx[16];
-int32_t nWritten = MDI_STREAM_Write(board_stream, achTx, sizeof(achTx));
-int32_t nRead = MDI_STREAM_Read(board_stream, achRx, sizeof(achRx));
+uint32_t wWritten = 0U;
+uint32_t wRead = 0U;
+mdi_status_t eStatus = MDI_STREAM_Write(
+    board_stream, achTx, sizeof(achTx), &wWritten);
+if (eStatus == MDI_OK) {
+    eStatus = MDI_STREAM_Read(board_stream, achRx, sizeof(achRx), &wRead);
+}
 bool bBusy = MDI_STREAM_IsBusy(board_stream);
 uint32_t wAvailable = MDI_STREAM_Available(board_stream);
 ```
 
 `MDI_STREAM_Write` 只把数据放入 TX 队列并由 UART IRQ 逐字节发送；RX IRQ 把字节放入
-RX 队列，`mdi_Clock()` 推进 1 ms 空闲保护，保护结束后 `MDI_STREAM_Read` 才返回当前帧。
+RX 队列，`Read` 立即返回已有字节，协议分帧由上层 driver 负责。合法的零长度、空队列和短传输返回 `MDI_OK` 与实际数量；参数错误返回 `MDI_INVALID`。队列或硬件 RX 溢出由下一次非零长度 Read 返回 `MDI_OVERRUN`，同时保留已读字节。`IsBusy` 包含最后一字节物理发送。初始化失败由后续读写返回保留的错误。
 不同 UART 只需各自声明状态、缓冲区和 `MDI_UART_STREAM_BIND`，不重复实现读写逻辑。
 
 ## Core 与 feature 的扩展规则
@@ -95,7 +101,7 @@ I2C、EEPROM 等可选能力。feature 可以通过绑定宏接受编译期参�
 MODUS core 只声明并调用三个无参数边界：
 
 ```c
-void mdi_Init(void);       /* modus_Init() 完成对象初始化后调用一次 */
+void mdi_Init(void);     /* modus_Init() 校验参数后、日志和对象 Init 前 */
 void mdi_Service(void);  /* modus_Run() 前台路径 */
 void mdi_Clock(void);    /* modus_Clock() 的 1 ms 路径 */
 ```
@@ -103,7 +109,7 @@ void mdi_Clock(void);    /* modus_Clock() 的 1 ms 路径 */
 三个函数由目标板 `peripheral/<chip>/mdi/service.c` 提供强实现，MODUS core 保留弱空
 实现。`mdi_Init()` 只做一次性的 MDI 状态和配置初始化；`mdi_Service()` 是通用扩展点，
 当前板可以在其中组合 ADC DMA 块处理、均值更新、下一批采样触发、板间维护等工作；
-`mdi_Clock()` 只做 Stream 超时等轻量维护。公共 core 不规定 ADC 是唯一服务，也不向回调
+`mdi_Clock()` 只做轻量维护；当前两个板的实现为空。公共 core 不规定 ADC 是唯一服务，也不向回调
 传递 `HW`、运行时对象或函数表。
 
 `peripheral/<chip>/mdi/state.c` 只定义由 `instance.h` 静态绑定引用的共享存储，例如 DMA
@@ -117,9 +123,12 @@ void mdi_Clock(void);    /* modus_Clock() 的 1 ms 路径 */
 
 `core/adc.h` 只定义最基本的单通道 ADC code 读取；ADC 扫描组、DMA 完成发布、多采样
 均值和按通道视图属于可选的 `feature/adc_dma.h`、`feature/adc_mean.h`。应用通常只看
-`MDI_ADC_Read` 和可选的 `MDI_ADC_SetSampleFrequency`，DMA flag、缓冲区所有权和均值
+`MDI_ADC_Read`，DMA flag、缓冲区所有权和均值
 过程由 feature 与芯片后端内部完成；若采样由轮询 tick 驱动，板级 `service.c` 在
 `mdi_Service()` 中完成调度和滤波发布，应用不再直接调用 ADC service。
+
+G431 和模板的轮询采样频率通过板级 `mdi/service.h` 的
+`mdi_service_SetAdcFrequency(wHz)` 设置。它修改实际软件周期，从调用时刻重新计时；首次 Service 立即启动，DMA 忙时保留到期请求，成功启动后重新计时，不追赶积压次数。范围为 1..1000000 Hz，周期向上取整为微秒；主循环延迟与 DMA 耗时决定实际频率，这个范围不是硬件保证。非法设置保留旧周期。setter 与 Service 限定前台串行调用。真实硬件触发资源可以独立提供 `MDI_ADC_SetSampleFrequency`，均值绑定不会生成这一能力。
 
 DMA 块处理按发布序号确认：`MDI_ADC_MeanUpdate` 只确认本次处理开始时捕获的发布号，
 处理期间新完成的块会继续保持 pending。GPIO 绑定按能力生成接口；input-only 资源不
@@ -163,20 +172,20 @@ MDI_IO_Write(token, value)
    使用 CMSIS 寄存器，但公共 `core/` 不得包含厂商头文件。
 3. 在板级启动代码完成时钟、GPIO 模式、外设使能、预装载和总线所有权。MDI 读写接口
    不会猜测这些初始化，也不会在第一次调用时偷偷初始化硬件。
-4. 在实时中断中只调用已完成帧和快速路径：先读完整采样帧，再写整组 PWM，最后提交。
+4. 在实时中断中只调用已完成帧和快速路径：先读完整采样帧，再写整组 PWM；仅在资源要求时提交。
    前台任务负责 I2C/SPI 等有界事务；不要在 FOC 中断里轮询外部设备。
 5. 故障路径使用 `MDI_PWM_SafeStop`、`MDI_PWM_FaultActive` 和
    `MDI_PWM_ClearFault`，由芯片后端决定 MOE、Break、COMP 和实际门控顺序。
 
 以 G431 为例，`peripheral/stm32g431/mdi/instance.h` 绑定三相 ADC、TIM1 三相 PWM、
-AS5600 I2C 设备和蜂鸣器；`mdi_stm32_g431_i2c1_Init()` 负责 I2C1 的时钟、PB7/PB8
-开漏复用、时序和使能。这个初始化属于芯片后端，不会污染 `modus/src/mdi/core/`。
+AS5600 I2C 设备和蜂鸣器；板级 `port_sys.c` 的 `port_i2c1_Init()` 负责 I2C1 的时钟、PB7/PB8
+开漏复用、时序和使能。USART2 配置也在该文件中，队列准备成功后才开启对应 IRQ。初始化属于板级启动，不是运行时 MDI 能力。
 G431 的 FOC 三相电流当前使用 TIM1 触发的 ADC 注入组和 JEOS 完成边界，直接读取
 JDR 寄存器，并不强制使用 DMA；DMA 扫描、批量均值和其他滤波属于可选 feature。它们都
 可以通过同一个稳定帧契约提供给 FOC，选择哪一种由芯片实例的实时性和缓冲区所有权决定。
 
 如果需要从零参考一个多外设芯片实例，可查看模板工程的
-[`peripheral_template`](../../../peripheral_template/README.md)。它使用抽象的 32 位
+[`peripheral/template`](../../../../peripheral/template/README.md)。它使用抽象的 32 位
 寄存器模型，同时展示 GPIO、并口 DAC、三相 ADC、PWM、硬件/软件 I2C 和 SPI EEPROM
 如何绑定到同一套 MDI 应用接口。
 
@@ -186,9 +195,8 @@ JDR 寄存器，并不强制使用 DMA；DMA 扫描、批量均值和其他滤�
 资源语义：
 
 ```c
-/* 一次写入单 pin 和四位并口，均由 instance.h 绑定。 */
+/* G431 instance.h 中实际存在的 GPIO 资源。 */
 MDI_IO_Write(status_led, 1U);
-MDI_IO_Write(dac_data, wCode);
 
 /* 一次读取三相已完成帧；接口不启动 ADC，也不等待转换。 */
 MDI_Sample_Frame(phase_current_completed) tCurrent = {0};
@@ -201,9 +209,7 @@ MDI_PWM_DutyFrame(bridge) tDuty = {
 };
 if (eStatus == MDI_OK) {
     eStatus = MDI_PWM_SetDuty(bridge, &tDuty);
-    if (eStatus == MDI_OK) {
-        eStatus = MDI_PWM_Commit(bridge);
-    }
+    /* G431 bridge preload 关闭，直接更新 CCR；不生成 UG。 */
 }
 ```
 
@@ -216,7 +222,12 @@ const MDI_PWM_Frame(bridge) tCompare = {
 };
 
 /* 读取未完成时返回 MDI_BUSY，PWM 保持不变。 */
-(void)MDI_FOC_RunCycleFast(g431_foc_cycle, &tCurrent, &tCompare);
+mdi_status_t eStatus = MDI_Sample_ReadCompleted(
+    phase_current_completed, &tCurrent);
+if (eStatus == MDI_OK) {
+    /* 控制计算在采样与输出之间执行。 */
+    MDI_PWM_StageFast(bridge, &tCompare);
+}
 ```
 
 变频 PWM 使用频率和占空比分开的契约；频率属于定时器组，占空比属于通道组：
@@ -275,5 +286,5 @@ python modus/src/mdi/tests/run_tests.py
 新的公共 MDI 头文件。MODUS 的设计索引见
 [modus/readme.md](../../../modus/readme.md)。
 
-MDI 的 C/C++ 头文件、示例和文档统一使用 CRLF；宏续行反斜杠固定在第 82 列，便于
+MDI 的 C/C++ 头文件、示例和文档统一使用 CRLF；宏续行反斜杠固定在第 81 列，便于
 Windows 工具链和代码审查保持一致。
