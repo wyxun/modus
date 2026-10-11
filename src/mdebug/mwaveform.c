@@ -5,6 +5,12 @@
 
 #if MWAVEFORM_ENABLE
 
+/* Optional compile-time binding; prepare bound values only on accepted samples.
+ * The function runs synchronously in Step and must not block or call Step. */
+#ifdef MWAVEFORM_PREPARE_SAMPLE
+extern void MWAVEFORM_PREPARE_SAMPLE(void);
+#endif
+
 #define MASK_BYTES  ((MWAVEFORM_MAX_CHANNELS + 7) / 8)
 
 /*============================ TYPES =========================================*/
@@ -272,6 +278,9 @@ static void mwaveform_Step(void)
         return;
     }
 
+#ifdef MWAVEFORM_PREPARE_SAMPLE
+    MWAVEFORM_PREPARE_SAMPLE();
+#endif
     mwaveform_UpdateBoundSamples(abSampleMask);
 
     uint8_t chW = s_tWave.wBatchWCount % MWAVEFORM_BATCH_DEPTH;
@@ -293,6 +302,9 @@ static void mwaveform_Step(void)
         return;
     }
 
+#ifdef MWAVEFORM_PREPARE_SAMPLE
+    MWAVEFORM_PREPARE_SAMPLE();
+#endif
     mwaveform_UpdateBoundSamples(abSampleMask);
 
     if (s_tWave.chSeq == MWAVEFORM_FRAME_TYPE_DESC ||
