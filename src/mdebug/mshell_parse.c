@@ -6,6 +6,7 @@
  */
 #include "mshell_parse.h"
 
+#include <float.h>
 #include <limits.h>
 #include <string.h>
 
@@ -125,6 +126,10 @@ static mshell_parse_result_t parse_magnitude(const char **cursor,
     bool overflow = false;
     bool has_digit = false;
     uint64_t result = 0U;
+    /* Both thresholds fold to constants; no runtime 64-bit division. */
+    const uint64_t cutoff = base == 16U ? UINT64_MAX >> 4U
+                                       : UINT64_MAX / 10U;
+    const uint8_t last_digit = base == 16U ? 15U : 5U;
 
     if (*start == '\0') {
         return MSHELL_PARSE_END;
@@ -149,7 +154,8 @@ static mshell_parse_result_t parse_magnitude(const char **cursor,
             invalid = true;
         } else {
             has_digit = true;
-            if (result > (limit - (uint64_t)digit) / base) {
+            if (result > cutoff ||
+                (result == cutoff && digit > last_digit)) {
                 overflow = true;
             } else if (!overflow) {
                 result = result * base + (uint64_t)digit;
@@ -161,7 +167,7 @@ static mshell_parse_result_t parse_magnitude(const char **cursor,
     if (!has_digit || p == digits || invalid) {
         return MSHELL_PARSE_INVALID;
     }
-    if (overflow) {
+    if (overflow || result > limit) {
         return MSHELL_PARSE_RANGE;
     }
 
@@ -347,6 +353,66 @@ mshell_parse_result_t mshell_ParseUint32(const char **cursor, uint32_t *value)
 mshell_parse_result_t mshell_ParseUint64(const char **cursor, uint64_t *value)
 {
     return parse_unsigned(cursor, UINT64_MAX, 10U, false, value);
+}
+
+/** @copydoc mshell_ParseFloat */
+mshell_parse_result_t mshell_ParseFloat(const char **cursor, float *value)
+{
+    if (cursor == NULL || *cursor == NULL || value == NULL) {
+        return MSHELL_PARSE_BAD_ARGUMENT;
+    }
+    const char *next = *cursor;
+    mshell_token_t token = { NULL, 0U };
+    mshell_parse_result_t status = mshell_NextToken(&next, &token);
+    if (status != MSHELL_PARSE_OK) {
+        return status;
+    }
+    const char *p = token.data;
+    const char *end = token.data + token.length;
+    const char *point = NULL;
+    bool negative = *p == '-';
+    bool has_digit = false;
+    if (*p == '+' || *p == '-') {
+        p++;
+    }
+    const char *digits = p;
+    /* Validate the whole token before arithmetic or changing outputs. */
+    for (; p < end; p++) {
+        if (*p >= '0' && *p <= '9') {
+            has_digit = true;
+        } else if (*p == '.' && point == NULL) {
+            point = p;
+        } else {
+            return MSHELL_PARSE_INVALID;
+        }
+    }
+    if (!has_digit) {
+        return MSHELL_PARSE_INVALID;
+    }
+    const char *integer_end = point != NULL ? point : end;
+    float parsed = 0.0f;
+    for (p = digits; p < integer_end; p++) {
+        if (parsed > FLT_MAX / 10.0f) {
+            return MSHELL_PARSE_RANGE;
+        }
+        parsed = parsed * 10.0f + (float)(*p - '0');
+        if (parsed > FLT_MAX) {
+            return MSHELL_PARSE_RANGE;
+        }
+    }
+    float fraction = 0.0f;
+    if (point != NULL) {
+        /* Reverse division avoids growing scales and repeated 0.1f error.
+         * In particular, 0.05 and 0.050000 must satisfy the FOC step limit. */
+        for (p = end; p > point + 1; ) {
+            p--;
+            fraction = (fraction + (float)(*p - '0')) / 10.0f;
+        }
+    }
+    parsed += fraction;
+    *value = negative ? -parsed : parsed;
+    *cursor = next;
+    return MSHELL_PARSE_OK;
 }
 
 /**

@@ -56,7 +56,7 @@ def main():
         run([compiler, *flags, HERE / "test_mshell_parse.c",
              ROOT / "src/mdebug/mshell_parse.c", "-o", parser])
         run([parser])
-        print("PASS parser token, integer, bool, hex and generic contracts")
+        print("PASS parser token, integer, float, bool, hex and generic contracts")
 
         io = work / "test_mshell_io.exe"
         run([compiler, *flags, "-DMSHELL_USE_RTT_DEFAULT=0",
@@ -85,7 +85,7 @@ def main():
         unsupported = work / "unsupported.c"
         unsupported.write_text(
             '#include "mdebug/mshell_parse.h"\n'
-            'void bad(void) { const char *p = "1"; float x = 0.0F; '
+            'void bad(void) { const char *p = "1"; double x = 0.0; '
             '(void)mshell_Parse(&p, &x); }\n', encoding="utf-8")
         output = run([compiler, *flags, "-fsyntax-only", unsupported], False)
         assert "mshell_Parse" in output
@@ -94,8 +94,8 @@ def main():
         explicit = work / "explicit.c"
         explicit.write_text(
             '#include "mdebug/mshell_parse.h"\n'
-            'int f(void) { const char *p = "2"; uint32_t v = 0U; '
-            'return (int)mshell_ParseUint32(&p, &v); }\n',
+            'int f(void) { const char *p = "0.05"; float v = 0.0f; '
+            'return (int)mshell_ParseFloat(&p, &v); }\n',
             encoding="utf-8")
         run([compiler, "-std=c99", "-Wall", "-Wextra", "-Werror",
              *flags[3:], "-fsyntax-only", explicit])
@@ -107,8 +107,9 @@ def main():
         cpp = work / "cpp_api.cpp"
         cpp.write_text(
             '#include "mdebug/mshell_parse.h"\n'
-            'int main() { const char *p = "2"; uint32_t v = 0U; '
-            'return mshell_ParseUint32(&p, &v) == MSHELL_PARSE_OK ? 0 : 1; }\n',
+            'int main() { const char *p = "0.05"; float v = 0.0f; '
+            'return mshell_ParseFloat(&p, &v) == MSHELL_PARSE_OK '
+            '&& v == 0.05f ? 0 : 1; }\n',
             encoding="utf-8")
         cpp_exe = work / "cpp_api.exe"
         run([cxx, "-std=c++11", "-Wall", "-Wextra", "-Werror",

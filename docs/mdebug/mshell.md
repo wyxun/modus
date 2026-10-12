@@ -87,13 +87,25 @@ static void cmd_level(const char *args)
 MODUS_SHELL_CMD(level, cmd_level, "Set level: level <0..100>");
 ```
 
-`mshell_Parse()` 根据目标指针类型选择有符号整数、无符号整数或 bool
+`mshell_Parse()` 根据目标指针类型选择有符号整数、无符号整数、float 或 bool
 解析函数。它是 C11 `_Generic` 便捷入口。明确类型的底层函数
 （如 `mshell_ParseUint32()`）可在 C99 或 C++ 调用处直接使用。
 
 普通整数按十进制解析，前导零不表示八进制；无符号数不接受正负号。
 需要十六进制时显式使用 `mshell_ParseHex()`，接受裸十六进制或 `0x`
 前缀。`mshell_ParseBool()` 接受小写 `true/false`、`on/off` 和 `1/0`。
+
+`mshell_ParseFloat()` 接受普通十进制浮点数，允许正负号和一个小数点，
+至少有一位数字：`1`、`-0.05`、`+1.25`、`.5`、`1.` 均合法。
+不接受科学计数法（`1e-3`）、十六进制浮点、`NaN/Inf`、逗号小数点、
+`f` 或单位后缀；不提供 `double` 解析。脚本应显式输出固定小数格式，
+例如 Python 的 `f"{value:.6f}"`，并根据业务精度要求选择小数位数。
+
+浮点转换仅使用单精度运算，不依赖 `strtof/sscanf/powf`、堆或 locale。
+它面向命令参数，不保证所有长十进制输入都得到 `strtof` 的正确舍入结果；
+溢出返回 `RANGE`，极小数可能舍入到带符号的零，非正规数行为受目标浮点模式影响。
+业务仍需检查物理范围、零值、单位和设备状态；解析器不承担这些限制。
+
 数值转换会检查完整 token 和目标类型范围；`OK`、`END`、`INVALID`、
 `RANGE`、`BAD_ARGUMENT` 分别表示成功、没有参数、格式错误、超范围和
 调用参数错误。

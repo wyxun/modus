@@ -1,7 +1,9 @@
 #include "mshell_parse.h"
 
 #include <assert.h>
+#include <float.h>
 #include <limits.h>
+#include <math.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -249,6 +251,85 @@ static void test_generic_argument_is_evaluated_once(void)
     assert(index == 1U && values[0] == 4U);
 }
 
+static void test_float_commands(void)
+{
+    const char *inputs[] = {
+        "1", "-0.05", "+1.25", ".5", "1.", "0.05", "0.050000",
+        "0.3", "0.02", "-1", "000.050000", "-0"
+    };
+    const float expected[] = {
+        1.0f, -0.05f, 1.25f, 0.5f, 1.0f, 0.05f, 0.05f,
+        0.3f, 0.02f, -1.0f, 0.05f, -0.0f
+    };
+    for (size_t i = 0U; i < sizeof(inputs) / sizeof(inputs[0]); i++) {
+        const char *cursor = inputs[i];
+        float value = 7.0f;
+        assert(mshell_Parse(&cursor, &value) == MSHELL_PARSE_OK);
+        assert(value == expected[i]);
+        assert(mshell_AtEnd(cursor));
+        assert(!!signbit(value) == !!signbit(expected[i]));
+    }
+    const char *cursor = " \t0.050000 100";
+    float current = 0.0f;
+    uint32_t duration = 0U;
+    assert(mshell_Parse(&cursor, &current) == MSHELL_PARSE_OK);
+    assert(current > 0.0f && current <= 0.05f);
+    assert(mshell_Parse(&cursor, &duration) == MSHELL_PARSE_OK);
+    assert(duration == 100U && mshell_AtEnd(cursor));
+}
+
+static void test_float_failures(void)
+{
+    const char *inputs[] = {
+        ".", "+", "-", "+.", "1.2.3", "1e-3", "0x1p0", "nan",
+        "inf", "1f", "1,5", "1\n", "--1", "12pu",
+        "999999999999999999999999999999999999999999x"
+    };
+    for (size_t i = 0U; i < sizeof(inputs) / sizeof(inputs[0]); i++) {
+        const char *cursor = inputs[i];
+        float value = 7.0f;
+        assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_INVALID);
+        assert(cursor == inputs[i] && value == 7.0f);
+    }
+    const char *start = "  999999999999999999999999999999999999999999";
+    const char *cursor = start;
+    float value = 7.0f;
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_RANGE);
+    assert(cursor == start && value == 7.0f);
+    cursor = "  \t";
+    start = cursor;
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_END);
+    assert(cursor == start && value == 7.0f);
+    assert(mshell_ParseFloat(NULL, &value) == MSHELL_PARSE_BAD_ARGUMENT);
+    assert(mshell_ParseFloat(&cursor, NULL) == MSHELL_PARSE_BAD_ARGUMENT);
+    cursor = NULL;
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_BAD_ARGUMENT);
+}
+
+static void test_float_range_and_precision(void)
+{
+    const char *cursor = "300000000000000000000000000000000000000";
+    float value = 0.0f;
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_OK);
+    assert(value > 2.99e38f && value <= FLT_MAX);
+    cursor = "340282346638528859811704183484516925440";
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_OK);
+    assert(value == FLT_MAX);
+    cursor = "350000000000000000000000000000000000000";
+    const char *start = cursor;
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_RANGE);
+    assert(value == FLT_MAX && cursor == start);
+    cursor = "0.000000000000000000000000000000000000001";
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_OK);
+    assert(value > 0.0f && value < FLT_MIN);
+    cursor = "0.00000000000000000000000000000000000000000000000001";
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_OK);
+    assert(value == 0.0f);
+    cursor = "0.123456";
+    assert(mshell_ParseFloat(&cursor, &value) == MSHELL_PARSE_OK);
+    assert(fabsf(value - 0.123456f) <= 2.0f * FLT_EPSILON);
+}
+
 int main(void)
 {
     test_words_and_tokens();
@@ -257,5 +338,8 @@ int main(void)
     test_lexical_errors_and_bool();
     test_hex_and_empty_input();
     test_generic_argument_is_evaluated_once();
+    test_float_commands();
+    test_float_failures();
+    test_float_range_and_precision();
     return 0;
 }

@@ -84,6 +84,17 @@ mshell_parse_result_t mshell_ParseUint32(const char **cursor, uint32_t *value);
 /** @copydoc mshell_ParseUint8 */
 mshell_parse_result_t mshell_ParseUint64(const char **cursor, uint64_t *value);
 /**
+ * @brief Parse a finite decimal float: optional sign and one decimal point.
+ * @param cursor Input cursor; advances on success only.
+ * @param value Receives the parsed value on success only.
+ * @return Parse status; overflow is RANGE, malformed tokens are INVALID.
+ * @note At least one digit is required; 1, -0.05, +1.25, .5 and 1. are valid.
+ *       Exponents, hex floats, NaN, Inf and unit suffixes are not supported.
+ *       Uses single-precision arithmetic, not correctly rounded strtof.
+ *       Underflow may round to signed zero; hardware subnormal mode applies.
+ */
+mshell_parse_result_t mshell_ParseFloat(const char **cursor, float *value);
+/**
  * @brief Parse true/false, on/off, or 1/0 in lowercase.
  * @param cursor Input cursor; advances on success only.
  * @param value Receives the parsed value on success.
@@ -124,7 +135,8 @@ mshell_parse_result_t mshell_ParseHexUint64(const char **cursor,
     uint16_t *: mshell_ParseUint16, \
     uint32_t *: mshell_ParseUint32, \
     uint64_t *: mshell_ParseUint64, \
-    bool *: mshell_ParseBool)
+    bool *: mshell_ParseBool, \
+    float *: mshell_ParseFloat)
 
 #define MSHELL_PARSE_HEX_SELECT(value) _Generic((value), \
     uint8_t *: mshell_ParseHexUint8, \
