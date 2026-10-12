@@ -3,12 +3,12 @@
 
 /*============================ MODUS VERSION ==================================*/
 /* MODUS_VERSION encodes the four-part release as {purpose, interface, major,
- * minor}; the current release is 0.6.1.3. */
+ * minor}; the current release is 0.6.1.4. */
 #define GENERAL_PURPOSE                 0               //!< General purpose 
 #define MODUS_PURPOSE                    GENERAL_PURPOSE //!< MODUS purpose   
 #define MODUS_INTERFACE_VERSION          6               //!< MODUS interface version
 #define MODUS_MAJOR_VERSION              1               //!< MODUS major version
-#define MODUS_MINOR_VERSION              3               //!< MODUS patch/minor version
+#define MODUS_MINOR_VERSION              4               //!< MODUS patch/minor version
 
 #define MODUS_VERSION                 {                                         \
                                         MODUS_PURPOSE,                          \

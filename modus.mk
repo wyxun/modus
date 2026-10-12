@@ -82,6 +82,7 @@ endif
 # ---------------------------------------------------------------------------
 MODUS_SRCS_DEBUG = \
     $(MODUS_ROOT)/src/mdebug/mshell.c \
+    $(MODUS_ROOT)/src/mdebug/mshell_parse.c \
     $(MODUS_ROOT)/src/mdebug/trace.c \
     $(MODUS_ROOT)/src/mdebug/trace_fmt.c \
     $(MODUS_ROOT)/src/mdebug/util_debug.c \

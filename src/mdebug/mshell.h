@@ -18,6 +18,8 @@
 
 #if MSHELL_ENABLE
 
+#include "mshell_parse.h"
+
 /*============================ MACROS ========================================*/
 
 /* 命令行缓冲区大小（含 '\0'），可在 userconfig.h 中覆盖 */
@@ -81,6 +83,13 @@ typedef struct {
  * @param ptIO 指向静态/全局 mshell_io_t，生命周期须覆盖整个运行周期
  */
 void mshell_SetIO(const mshell_io_t *ptIO);
+
+/**
+ * @brief Write a NUL-terminated string through the configured Shell backend.
+ * @param pchText Text to write; NULL is ignored.
+ * @return None.
+ */
+void mshell_Write(const char *pchText);
 
 /**
  * @brief 注册用户自定义命令

@@ -89,29 +89,16 @@ static void cmd_regs(const char *args)
 
 static void cmd_peek(const char *args)
 {
-    unsigned long wAddr = 0;
+    uintptr_t wAddr = 0U;
     const char *p = args;
 
-    while (*p == ' ' || *p == '\t') p++;
-    if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) p += 2;
-
-    const char *pStart = p;
-    while ((*p >= '0' && *p <= '9') ||
-           (*p >= 'a' && *p <= 'f') ||
-           (*p >= 'A' && *p <= 'F')) {
-        char c = *p++;
-        wAddr <<= 4;
-        if      (c >= '0' && c <= '9') wAddr |= (unsigned long)(c - '0');
-        else if (c >= 'a' && c <= 'f') wAddr |= (unsigned long)(c - 'a' + 10);
-        else                           wAddr |= (unsigned long)(c - 'A' + 10);
-    }
-
-    if (p == pStart) {
+    if (mshell_ParseHex(&p, &wAddr) != MSHELL_PARSE_OK ||
+        !mshell_AtEnd(p)) {
         MLOGF(W, "Usage: peek <hex_addr>\r\n");
         return;
     }
 
-    uint32_t wVal = *(volatile uint32_t *)wAddr;
+    uint32_t wVal = *(volatile uint32_t *)(uintptr_t)wAddr;
     MLOGF(I, "@0x%08X = 0x%08X (%u)\r\n",
           (unsigned)wAddr, (unsigned)wVal, (unsigned)wVal);
 }
@@ -120,43 +107,17 @@ static void cmd_peek(const char *args)
 
 static void cmd_poke(const char *args)
 {
-    unsigned long wAddr = 0;
-    unsigned long wVal  = 0;
-
-    while (*args == ' ' || *args == '\t') args++;
-
+    uintptr_t wAddr = 0U;
+    uint32_t wVal = 0U;
     const char *p = args;
-    if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) p += 2;
-    while ((*p >= '0' && *p <= '9') ||
-           (*p >= 'a' && *p <= 'f') ||
-           (*p >= 'A' && *p <= 'F')) {
-        char c = *p++;
-        wAddr <<= 4;
-        if      (c >= '0' && c <= '9') wAddr |= (unsigned long)(c - '0');
-        else if (c >= 'a' && c <= 'f') wAddr |= (unsigned long)(c - 'a' + 10);
-        else                           wAddr |= (unsigned long)(c - 'A' + 10);
-    }
-
-    while (*p == ' ' || *p == '\t') p++;
-
-    if (*p == '0' && (*(p+1) == 'x' || *(p+1) == 'X')) p += 2;
-    const char *pVal = p;
-    while ((*p >= '0' && *p <= '9') ||
-           (*p >= 'a' && *p <= 'f') ||
-           (*p >= 'A' && *p <= 'F')) {
-        char c = *p++;
-        wVal <<= 4;
-        if      (c >= '0' && c <= '9') wVal |= (unsigned long)(c - '0');
-        else if (c >= 'a' && c <= 'f') wVal |= (unsigned long)(c - 'a' + 10);
-        else                           wVal |= (unsigned long)(c - 'A' + 10);
-    }
-
-    if (p == args || p == pVal) {
+    if (mshell_ParseHex(&p, &wAddr) != MSHELL_PARSE_OK ||
+        mshell_ParseHex(&p, &wVal) != MSHELL_PARSE_OK ||
+        !mshell_AtEnd(p)) {
         MLOGF(W, "Usage: poke <hex_addr> <hex_val>\r\n");
         return;
     }
 
-    *(volatile uint32_t *)wAddr = (uint32_t)wVal;
+    *(volatile uint32_t *)wAddr = wVal;
     MLOGF(I, "@0x%08X <- 0x%08X\r\n", (unsigned)wAddr, (unsigned)wVal);
 }
 
@@ -175,14 +136,13 @@ static void cmd_stack(const char *args)
     bool     bUsingPsp = (wControl & 2) != 0;
     uint32_t wSp = bUsingPsp ? wPsp : wMsp;
 
-    unsigned wDepth = 16;
+    uint32_t wDepth = 16U;
     const char *p = args;
-    while (*p == ' ' || *p == '\t') p++;
-    if (*p >= '0' && *p <= '9') {
-        wDepth = 0;
-        while (*p >= '0' && *p <= '9') {
-            wDepth = wDepth * 10 + (unsigned)(*p - '0');
-            p++;
+    if (!mshell_AtEnd(p)) {
+        if (mshell_Parse(&p, &wDepth) != MSHELL_PARSE_OK ||
+            !mshell_AtEnd(p)) {
+            MLOGF(W, "Usage: stack [depth_words]\r\n");
+            return;
         }
         if (wDepth > 256) wDepth = 256;
     }

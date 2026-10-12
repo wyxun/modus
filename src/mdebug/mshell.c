@@ -29,8 +29,9 @@ static const mshell_io_t s_tRttIO = {
 /*============================ PRIVATE DATA ==================================*/
 
 typedef struct {
-    char    achLine[MSHELL_LINE_SIZE]; /* 行缓冲区                       */
-    uint8_t chLen;                     /* 当前已缓存字节数                 */
+    char   achLine[MSHELL_LINE_SIZE];
+    size_t chLen;
+    bool   bDiscardingLine;
 } mshell_cb_t;
 
 static const mshell_cmd_t *s_aptCmds[MSHELL_MAX_CMDS];
@@ -40,7 +41,7 @@ static const mshell_io_t  *s_ptIO = NULL; /* 当前 I/O 后端               */
 
 /*============================ PRIVATE HELPERS ===============================*/
 
-static void shell_puts(const char *pchStr)
+void mshell_Write(const char *pchStr)
 {
     if (s_ptIO == NULL || s_ptIO->pfcnWrite == NULL || pchStr == NULL) {
         return;
@@ -48,45 +49,18 @@ static void shell_puts(const char *pchStr)
     s_ptIO->pfcnWrite(pchStr, (unsigned)strlen(pchStr));
 }
 
-/* 去除字符串前导空格/Tab */
-static const char *trim_leading(const char *pch)
-{
-    while (*pch == ' ' || *pch == '\t') {
-        pch++;
-    }
-    return pch;
-}
-
-/* 解析十六进制无符号整数，pp 指向当前解析位置（解析后前移） */
-static unsigned long parse_hex(const char **pp)
-{
-    unsigned long wVal = 0;
-    const char *p = *pp;
-    while ((*p >= '0' && *p <= '9') ||
-           (*p >= 'a' && *p <= 'f') ||
-           (*p >= 'A' && *p <= 'F')) {
-        char c = *p++;
-        wVal <<= 4;
-        if      (c >= '0' && c <= '9') wVal |= (unsigned long)(c - '0');
-        else if (c >= 'a' && c <= 'f') wVal |= (unsigned long)(c - 'a' + 10);
-        else                           wVal |= (unsigned long)(c - 'A' + 10);
-    }
-    *pp = p;
-    return wVal;
-}
-
 /*============================ BUILTIN: help =================================*/
 
 static void cmd_help(const char *args)
 {
     (void)args;
-    shell_puts("\r\nAvailable commands:\r\n");
+    mshell_Write("\r\nAvailable commands:\r\n");
     for (uint8_t i = 0; i < s_chCmdCount; i++) {
-        shell_puts("  ");
-        shell_puts(s_aptCmds[i]->pchName);
-        shell_puts("\t\t");
-        shell_puts(s_aptCmds[i]->pchHelp);
-        shell_puts("\r\n");
+        mshell_Write("  ");
+        mshell_Write(s_aptCmds[i]->pchName);
+        mshell_Write("\t\t");
+        mshell_Write(s_aptCmds[i]->pchHelp);
+        mshell_Write("\r\n");
     }
 }
 
@@ -116,10 +90,10 @@ static void cmd_list(const char *args)
     (void)args;
     mlist_t *ptList = mbase_GetBaseList();
     if (ptList == NULL || ptList->wNumberOfItems == 0) {
-        shell_puts("No objects registered.\r\n");
+        mshell_Write("No objects registered.\r\n");
         return;
     }
-    shell_puts("MODUS objects:\r\n");
+    mshell_Write("MODUS objects:\r\n");
     for (mlist_item_t *ptItem = ptList->tListEnd.ptPrevious;
          ptItem != &ptList->tListEnd;
          ptItem = ptItem->ptPrevious) {
@@ -137,13 +111,14 @@ static void cmd_list(const char *args)
 
 static void cmd_post(const char *args)
 {
-    const char *p = trim_leading(args);
-    unsigned long wId    = parse_hex(&p);
-    p = trim_leading(p);
-    unsigned long wEvent = parse_hex(&p);
+    const char *p = args;
+    uint32_t wId = 0U;
+    uint32_t wEvent = 0U;
 
-    if (wId == 0 || wEvent == 0) {
-        shell_puts("Usage: post <id_hex> <event_hex>\r\n");
+    if (mshell_ParseHex(&p, &wId) != MSHELL_PARSE_OK ||
+        mshell_ParseHex(&p, &wEvent) != MSHELL_PARSE_OK ||
+        !mshell_AtEnd(p) || wId == 0U || wEvent == 0U) {
+        mshell_Write("Usage: post <id_hex> <event_hex>\r\n");
         return;
     }
     int wRet = mbase_EventPost((uint32_t)wId, (uint32_t)wEvent);
@@ -168,18 +143,18 @@ static void cmd_post(const char *args)
 
 static void print_log_status(void)
 {
-    shell_puts("Log mask:  ");
-    shell_puts((g_chGLogMask & MLOG_MASK_E) ? "[E]" : "( )");
-    shell_puts((g_chGLogMask & MLOG_MASK_W) ? "[W]" : "( )");
-    shell_puts((g_chGLogMask & MLOG_MASK_I) ? "[I]" : "( )");
-    shell_puts((g_chGLogMask & MLOG_MASK_D) ? "[D]" : "( )");
-    shell_puts((g_chGLogMask & MLOG_MASK_T) ? "[T]" : "( )");
-    shell_puts("\r\n");
+    mshell_Write("Log mask:  ");
+    mshell_Write((g_chGLogMask & MLOG_MASK_E) ? "[E]" : "( )");
+    mshell_Write((g_chGLogMask & MLOG_MASK_W) ? "[W]" : "( )");
+    mshell_Write((g_chGLogMask & MLOG_MASK_I) ? "[I]" : "( )");
+    mshell_Write((g_chGLogMask & MLOG_MASK_D) ? "[D]" : "( )");
+    mshell_Write((g_chGLogMask & MLOG_MASK_T) ? "[T]" : "( )");
+    mshell_Write("\r\n");
 }
 
 static void cmd_log(const char *args)
 {
-    const char *p = trim_leading(args);
+    const char *p = mshell_SkipSpaces(args);
 
     if (*p == '\0') {
         /* 无参数：仅显示当前状态 */
@@ -209,7 +184,7 @@ static void cmd_log(const char *args)
         }
         /* 跳至下一个 token */
         while (*p && *p != ' ' && *p != '\t') p++;
-        p = trim_leading(p);
+        p = mshell_SkipSpaces(p);
     }
     print_log_status();
 }
@@ -237,7 +212,7 @@ static const mshell_cmd_t s_tCmdLog = {
 
 static void dispatch(void)
 {
-    const char *pch = trim_leading(s_tShell.achLine);
+    const char *pch = mshell_SkipSpaces(s_tShell.achLine);
     if (*pch == '\0') return; /* 空行忽略 */
 
     /* 定位命令名结束 */
@@ -250,11 +225,11 @@ static void dispatch(void)
     for (uint8_t i = 0; i < s_chCmdCount; i++) {
         if (strlen(s_aptCmds[i]->pchName) == chNameLen &&
             memcmp(s_aptCmds[i]->pchName, pch, chNameLen) == 0) {
-            s_aptCmds[i]->pfcnHandle(trim_leading(pchEnd));
+            s_aptCmds[i]->pfcnHandle(mshell_SkipSpaces(pchEnd));
             return;
         }
     }
-    shell_puts("Unknown command. Type 'help'.\r\n");
+    mshell_Write("Unknown command. Type 'help'.\r\n");
 }
 
 /*============================ PUBLIC API ====================================*/
@@ -307,7 +282,7 @@ void mshell_Poll(void)
         SAFE_REG_CMD(s_tCmdLog);
         #undef SAFE_REG_CMD
 
-        shell_puts("\r\n[mshell] ready. Type 'help'.\r\n> ");
+        mshell_Write("\r\n[mshell] ready. Type 'help'.\r\n> ");
     }
 
     if (s_ptIO == NULL || s_ptIO->pfcnRead == NULL) return;
@@ -328,34 +303,43 @@ void mshell_Poll(void)
 
         /* 回车/换行：执行命令 */
         if (c == '\r' || c == '\n') {
-            if (s_tShell.chLen > 0) {
-                shell_puts("\r\n");
+            if (s_tShell.bDiscardingLine) {
+                mshell_Write("\r\nInput line too long.\r\n");
+                s_tShell.chLen = 0U;
+                s_tShell.bDiscardingLine = false;
+                mshell_Write("> ");
+            } else if (s_tShell.chLen > 0U) {
+                mshell_Write("\r\n");
                 s_tShell.achLine[s_tShell.chLen] = '\0';
                 dispatch();
-                s_tShell.chLen = 0;
-                shell_puts("> ");
+                s_tShell.chLen = 0U;
+                mshell_Write("> ");
             } else {
                 /* 忽略空行 */
-                shell_puts("\r\n> ");
+                mshell_Write("\r\n> ");
             }
             continue;
         }
 
         /* 退格/DEL：删除最后一个字符 */
         if (c == '\b' || c == 0x7F) {
-            if (s_tShell.chLen > 0) {
+            if (!s_tShell.bDiscardingLine && s_tShell.chLen > 0U) {
                 s_tShell.chLen--;
-                shell_puts("\b \b");
+                mshell_Write("\b \b");
             }
             continue;
         }
 
         /* 普通可打印字符：入行缓冲 (已关闭回显) */
-        if (c >= 0x20 && c < 0x7F) {
-            if (s_tShell.chLen < (MSHELL_LINE_SIZE - 1)) {
-                s_tShell.achLine[s_tShell.chLen++] = c;
+        if ((c == '\t') || (c >= 0x20 && c < 0x7F)) {
+            if (s_tShell.bDiscardingLine) {
+                continue;
             }
-            /* 缓冲满时静默丢弃 */
+            if (s_tShell.chLen < (MSHELL_LINE_SIZE - 1U)) {
+                s_tShell.achLine[s_tShell.chLen++] = c;
+            } else {
+                s_tShell.bDiscardingLine = true;
+            }
         }
     }
 }
